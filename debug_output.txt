@@ -1,0 +1,7 @@
+Starting check...
+Total products: 5
+ID: 7a01f580-f214-434e-82b5-c03e74046e2a | Name: ARCHIVED - POULET  - 1770767461336 | Category: ARCHIVED | Site: abidjan | Stock A: 0 | Stock B: 0
+ID: a88c7285-06cb-41b7-8dc6-5adb43cdfa33 | Name: ARCHIVED - POULET - 1770767532461 | Category: ARCHIVED | Site: abidjan | Stock A: 0 | Stock B: 0
+ID: d075bf95-00c9-4666-8a5d-dcdaf165ebc8 | Name: ARCHIVED - DDD - 1770767888722 | Category: ARCHIVED | Site: abidjan | Stock A: 0 | Stock B: 0
+ID: b20a190b-9fe8-40be-943c-57cd44362383 | Name: ARCHIVED - POULET  - 1770766926547 | Category: ARCHIVED | Site: abidjan | Stock A: 2 | Stock B: 0
+ID: 3ffd6ae4-edb8-45a0-bdbf-b218a8567cac | Name: MOUTON | Category: Viande | Site: bassam | Stock A: 0 | Stock B: 66

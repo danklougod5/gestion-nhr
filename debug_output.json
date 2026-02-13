@@ -1,0 +1,67 @@
+[
+  {
+    "id": "7a01f580-f214-434e-82b5-c03e74046e2a",
+    "name": "ARCHIVED - POULET  - 1770767461336",
+    "category": "ARCHIVED",
+    "unit": "unit",
+    "min_threshold": 0,
+    "image_url": "",
+    "stock_abidjan": 0,
+    "stock_bassam": 0,
+    "created_at": "2026-02-10T23:50:52.77368+00:00",
+    "created_by": "c387f6d6-7ed9-4d6f-97b7-352e0e42edac",
+    "site": "abidjan"
+  },
+  {
+    "id": "a88c7285-06cb-41b7-8dc6-5adb43cdfa33",
+    "name": "ARCHIVED - POULET - 1770767532461",
+    "category": "ARCHIVED",
+    "unit": "unit",
+    "min_threshold": 0,
+    "image_url": "",
+    "stock_abidjan": 0,
+    "stock_bassam": 0,
+    "created_at": "2026-02-10T23:52:07.053237+00:00",
+    "created_by": "c387f6d6-7ed9-4d6f-97b7-352e0e42edac",
+    "site": "abidjan"
+  },
+  {
+    "id": "d075bf95-00c9-4666-8a5d-dcdaf165ebc8",
+    "name": "ARCHIVED - DDD - 1770767888722",
+    "category": "ARCHIVED",
+    "unit": "unit",
+    "min_threshold": 0,
+    "image_url": "",
+    "stock_abidjan": 0,
+    "stock_bassam": 0,
+    "created_at": "2026-02-10T23:58:02.539875+00:00",
+    "created_by": "c387f6d6-7ed9-4d6f-97b7-352e0e42edac",
+    "site": "abidjan"
+  },
+  {
+    "id": "b20a190b-9fe8-40be-943c-57cd44362383",
+    "name": "ARCHIVED - POULET  - 1770766926547",
+    "category": "ARCHIVED",
+    "unit": "unit",
+    "min_threshold": 0,
+    "image_url": "",
+    "stock_abidjan": 2,
+    "stock_bassam": 0,
+    "created_at": "2026-02-10T23:41:27.114173+00:00",
+    "created_by": "c387f6d6-7ed9-4d6f-97b7-352e0e42edac",
+    "site": "abidjan"
+  },
+  {
+    "id": "3ffd6ae4-edb8-45a0-bdbf-b218a8567cac",
+    "name": "MOUTON",
+    "category": "Viande",
+    "unit": "unit",
+    "min_threshold": 5,
+    "image_url": "",
+    "stock_abidjan": 0,
+    "stock_bassam": 66,
+    "created_at": "2026-02-09T15:12:07.244659+00:00",
+    "created_by": "c387f6d6-7ed9-4d6f-97b7-352e0e42edac",
+    "site": "bassam"
+  }
+]

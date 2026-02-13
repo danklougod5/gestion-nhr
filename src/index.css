@@ -1,0 +1,104 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100;200;300;400;500;600;700;800;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+  }
+
+  body {
+    @apply bg-[#F8FAFC] text-gray-900 antialiased;
+    font-family: 'Outfit', sans-serif;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-xl;
+  }
+
+  .glass-dark {
+    @apply bg-gray-900/80 backdrop-blur-xl border border-white/10 shadow-2xl;
+  }
+
+  .premium-card {
+    @apply bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm hover:shadow-premium transition-all duration-500;
+  }
+
+  .brand-gradient {
+    @apply bg-gradient-to-br from-brand-500 to-brand-700;
+  }
+
+  .brand-text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-brand-600 to-brand-400;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-200 rounded-full hover:bg-gray-300 transition-colors;
+}
+
+.custom-scrollbar-dark::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+}
+
+@keyframes flash-red {
+
+  0%,
+  100% {
+    border-color: rgba(239, 68, 68, 0.2);
+  }
+
+  50% {
+    border-color: rgba(239, 68, 68, 0.8);
+    background-color: rgba(254, 242, 242, 1);
+    box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+  }
+}
+
+.animate-flash-red {
+  animation: flash-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Mobile-specific utilities */
+@media (max-width: 768px) {
+  .mobile-full-width {
+    width: 100vw;
+    margin-left: -1rem;
+    margin-right: -1rem;
+    border-radius: 0;
+  }
+
+  .mobile-compact {
+    padding: 1rem !important;
+  }
+
+  .mobile-text-sm {
+    font-size: 0.875rem !important;
+  }
+
+  .mobile-hidden {
+    display: none !important;
+  }
+}
+
+/* Safe area for mobile devices */
+@supports (padding: max(0px)) {
+  body {
+    padding-left: max(0px, env(safe-area-inset-left));
+    padding-right: max(0px, env(safe-area-inset-right));
+  }
+}
