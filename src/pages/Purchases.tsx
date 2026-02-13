@@ -211,7 +211,7 @@ export default function Purchases() {
     return (
         <div className="min-h-screen bg-gray-50/50 pb-20 font-['Outfit']">
             {/* Sticky Header — Re-styled to match Needs Header */}
-            <div className="sticky top-0 z-[100] bg-white/80 backdrop-blur-xl border-b border-gray-100 shadow-sm animate-in slide-in-from-top duration-500">
+            <div className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-gray-100 shadow-sm animate-in slide-in-from-top duration-500">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between py-4 sm:h-24 gap-4">
                         <div className="flex items-center gap-4">
