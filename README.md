@@ -3,6 +3,8 @@
 
 Application de gestion de stocks multisite pour l'industrie hôtelière (Bassam et Abidjan).
 
+🌐 **Déploiement** : [https://gestion-nhr.vercel.app](https://gestion-nhr.vercel.app)
+
 ## Fonctionnalités
 
 - **Tableau de bord** : Vue d'ensemble des stocks et alertes.
