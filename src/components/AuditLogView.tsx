@@ -8,7 +8,6 @@ import {
     Info,
     User,
     Package,
-    Settings,
     Database,
     Trash2,
     Edit2,

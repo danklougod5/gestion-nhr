@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Eye, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronRight, Beef, Coffee, Carrot, LayoutGrid } from 'lucide-react';
+import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, Beef, Coffee, Carrot, LayoutGrid } from 'lucide-react';
 import type { Product, Site } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
