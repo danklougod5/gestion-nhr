@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
+import { Plus, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import type { Product, Site } from '../types';
