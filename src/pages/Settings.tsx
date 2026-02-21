@@ -286,12 +286,21 @@ export default function Settings() {
 
         setLoading(true);
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .delete()
-                .eq('id', user.id);
+            // Tentative de suppression complète via RPC (Auth + Profil)
+            const { error: rpcError } = await supabase.rpc('delete_user_auth', {
+                target_user_id: user.id
+            });
 
-            if (error) throw error;
+            if (rpcError) {
+                console.warn('RPC Error (Falling back to profile deletion):', rpcError);
+                // Repli sur la suppression de profil simple si l'RPC n'est pas encore installé
+                const { error } = await supabase
+                    .from('profiles')
+                    .delete()
+                    .eq('id', user.id);
+
+                if (error) throw error;
+            }
 
             if (profile) {
                 await logAudit({

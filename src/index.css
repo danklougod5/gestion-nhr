@@ -102,3 +102,38 @@
     padding-right: max(0px, env(safe-area-inset-right));
   }
 }
+
+/* Print Styles for thermal printers or tickets */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 80mm;
+    /* typical thermal printer width */
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+    border: none !important;
+    background: transparent !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  /* Reset some paddings for print */
+  .print-area {
+    font-family: monospace, sans-serif !important;
+  }
+}

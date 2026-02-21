@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Send, Clock, ShoppingBag, Edit2, X, Filter, Search, RefreshCw, MapPin, Package, LayoutGrid, Check } from 'lucide-react';
+import { Plus, Trash2, Clock, ShoppingBag, Edit2, X, Filter, Search, RefreshCw, MapPin, Package, Check, Minus, Ticket, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import type { Product, Site } from '../types';
@@ -23,6 +23,12 @@ export default function Needs() {
 
     // Filter States
     const [showFilters, setShowFilters] = useState(false);
+    const [isTicketExpanded, setIsTicketExpanded] = useState(false);
+
+    useEffect(() => {
+        if (items.length === 0) setIsTicketExpanded(false);
+    }, [items.length]);
+
     const [filters, setFilters] = useState({
         startDate: '',
         endDate: '',
@@ -150,20 +156,21 @@ export default function Needs() {
         }
     };
 
-    const addItem = () => {
-        setItems([...items, { productId: '', quantity: 0 }]);
+    const updateTicket = (productId: string, newQuantity: number) => {
+        if (newQuantity <= 0) {
+            setItems(items.filter(i => i.productId !== productId));
+        } else {
+            const existing = items.find(i => i.productId === productId);
+            if (existing) {
+                setItems(items.map(i => i.productId === productId ? { ...i, quantity: newQuantity } : i));
+            } else {
+                setItems([...items, { productId, quantity: newQuantity }]);
+            }
+        }
     };
 
-    const updateItem = (index: number, field: string, value: any) => {
-        const newItems = [...items];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setItems(newItems);
-    };
-
-    const removeItem = (index: number) => {
-        const newItems = [...items];
-        newItems.splice(index, 1);
-        setItems(newItems);
+    const clearTicket = () => {
+        setItems([]);
     };
 
     const handleSubmit = async () => {
@@ -244,6 +251,27 @@ export default function Needs() {
             setItems([]);
             fetchProducts();
             setActiveTab('history');
+
+            // Auto-Print the new ticket
+            const { data: fullRequest } = await supabase
+                .from('needs_requests')
+                .select(`
+                    *,
+                    creator:profiles(full_name),
+                    movements:stock_movements(
+                        id,
+                        quantity,
+                        notes,
+                        product:products(name)
+                    )
+                `)
+                .eq('id', request.id)
+                .single();
+
+            if (fullRequest) {
+                setSelectedRequest(fullRequest);
+                setTimeout(() => window.print(), 500);
+            }
         } catch (error: any) {
             console.error('Error submitting request:', error);
             toast.error('Erreur lors de la validation : ' + error.message);
@@ -717,108 +745,180 @@ export default function Needs() {
 
             <div className="flex-1 px-4 py-6">
                 {activeTab === 'new' ? (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                            {items.map((item, idx) => {
-                                const product = products.find(p => p.id === item.productId);
-                                const stock = product ? (product as any)[selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam'] : 0;
-                                const isExcess = (item.quantity || 0) > stock;
+                    <div className="flex flex-col lg:flex-row gap-6 items-start h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* Grille de Produits */}
+                        <div className="flex-1 w-full pb-32 lg:pb-8">
+                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {products.map(product => {
+                                    const stockField = selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
+                                    const stock = (product as any)[stockField] || 0;
+                                    const itemInCart = items.find(i => i.productId === product.id);
+                                    const inCart = !!itemInCart;
+                                    const quantity = itemInCart?.quantity || 0;
 
-                                return (
-                                    <div key={idx} className="group relative bg-white border border-gray-100 rounded-2xl p-4 hover:shadow-xl hover:shadow-brand-100/50 transition-all border-l-4 border-l-brand-500">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <div className="flex items-center gap-2">
-                                                <span className="w-5 h-5 bg-brand-50 text-brand-600 rounded-md flex items-center justify-center text-[10px] font-black italic">
-                                                    {idx + 1}
+                                    return (
+                                        <div
+                                            key={product.id}
+                                            className={clsx(
+                                                "bg-white rounded-2xl p-4 flex flex-col transition-all duration-300 select-none",
+                                                inCart
+                                                    ? "border-2 border-brand-500 shadow-md transform -translate-y-1"
+                                                    : "border border-gray-100 hover:border-brand-200 hover:shadow-lg opacity-90 hover:opacity-100",
+                                                stock <= 0 && "opacity-50 grayscale"
+                                            )}
+                                        >
+                                            <div className="flex justify-between items-start mb-3 gap-2">
+                                                <h3 className="font-black text-gray-900 text-xs uppercase leading-tight tracking-tight line-clamp-2">{product.name}</h3>
+                                                <span className={clsx(
+                                                    "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap",
+                                                    stock > 0 ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
+                                                )}>
+                                                    {stock} Disp.
                                                 </span>
-                                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Produit</span>
-                                            </div>
-                                            <button
-                                                onClick={() => removeItem(idx)}
-                                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-
-                                        <div className="space-y-4">
-                                            <div className="relative group/select">
-                                                <Package className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300 group-focus-within/select:text-brand-500 transition-colors pointer-events-none" />
-                                                <select
-                                                    value={item.productId}
-                                                    onChange={(e) => updateItem(idx, 'productId', e.target.value)}
-                                                    className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-transparent rounded-xl text-xs font-bold text-gray-900 focus:bg-white focus:border-brand-200 outline-none transition-all cursor-pointer appearance-none"
-                                                >
-                                                    <option value="">Sélectionner...</option>
-                                                    {products.map(p => {
-                                                        const s = (p as any)[selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam'] || 0;
-                                                        return <option key={p.id} value={p.id} disabled={s <= 0}>{p.name} ({s})</option>
-                                                    })}
-                                                </select>
                                             </div>
 
-                                            <div className="space-y-1.5">
-                                                <div className="flex justify-between items-center px-1">
-                                                    <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Quantité</label>
-                                                    {product && (
-                                                        <span className={clsx(
-                                                            "text-[8px] font-black uppercase tracking-tighter px-2 py-0.5 rounded-md",
-                                                            isExcess ? "bg-red-50 text-red-600 animate-pulse" : "bg-brand-50 text-brand-600"
-                                                        )}>
-                                                            {isExcess ? `MAX: ${stock} ` : `DISPO: ${stock} `}
-                                                        </span>
-                                                    )}
+                                            <div className="mt-auto pt-4 flex items-center justify-between">
+                                                <div className="text-[9px] font-black text-gray-300 uppercase tracking-widest truncate max-w-[80px]">
+                                                    {product.category}
                                                 </div>
-                                                <div className="relative">
-                                                    <LayoutGrid className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-300" />
-                                                    <input
-                                                        type="number"
-                                                        value={item.quantity || ''}
-                                                        onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                                                        placeholder="0"
-                                                        className={clsx(
-                                                            "w-full pl-9 pr-4 py-3 bg-gray-50 border border-transparent rounded-xl text-xl font-black tabular-nums transition-all outline-none",
-                                                            isExcess ? "text-red-600 bg-red-50 focus:border-red-200" : "text-gray-900 focus:bg-white focus:border-brand-200"
-                                                        )}
-                                                    />
-                                                </div>
+
+                                                {stock > 0 ? (
+                                                    !inCart ? (
+                                                        <button
+                                                            onClick={() => updateTicket(product.id, 1)}
+                                                            className="w-8 h-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-brand-50 hover:text-brand-600 transition-colors"
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </button>
+                                                    ) : (
+                                                        <div className="flex items-center gap-2 bg-brand-50 rounded-xl p-1 shadow-inner">
+                                                            <button
+                                                                onClick={() => updateTicket(product.id, quantity - 1)}
+                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all"
+                                                            >
+                                                                <Minus className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <span className="font-black text-sm text-brand-900 w-5 text-center px-1 tabular-nums">{quantity}</span>
+                                                            <button
+                                                                onClick={() => updateTicket(product.id, quantity + 1)}
+                                                                disabled={quantity >= stock}
+                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            >
+                                                                <Plus className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    )
+                                                ) : (
+                                                    <span className="text-[10px] font-black text-red-500 uppercase">Rupture</span>
+                                                )}
                                             </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
-
-                            <button
-                                onClick={addItem}
-                                className="h-[180px] border-2 border-dashed border-gray-100 rounded-2xl bg-white text-gray-300 hover:border-brand-200 hover:text-brand-600 hover:bg-brand-50/50 transition-all flex flex-col items-center justify-center p-6 group"
-                            >
-                                <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center mb-3 group-hover:scale-110 group-hover:bg-brand-100 transition-all duration-300">
-                                    <Plus className="w-5 h-5 group-hover:text-brand-600" />
-                                </div>
-                                <span className="text-[10px] font-black uppercase tracking-widest text-center">Ajouter un produit</span>
-                            </button>
+                                    );
+                                })}
+                            </div>
                         </div>
 
-                        {/* Submit Section - Fixed at the bottom */}
-                        {items.length > 0 && (
-                            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-[90] animate-in slide-in-from-bottom-10 duration-700">
+                        {/* Ticket Sidebar / Bottom Sheet */}
+                        <div className={clsx(
+                            "w-full lg:w-96 bg-white shadow-[0_-10px_40px_-10px_rgba(0,0,0,0.1)] lg:shadow-xl border-t lg:border border-gray-100 lg:rounded-3xl flex flex-col z-[90] transition-all duration-500",
+                            "fixed bottom-0 left-0 lg:sticky lg:top-[calc(1.5rem+150px)] lg:bottom-auto pointer-events-auto",
+                            isTicketExpanded ? "h-[80vh] lg:h-auto" : "h-auto",
+                            items.length > 0 ? "translate-y-0" : "translate-y-full lg:translate-y-0 lg:opacity-50 lg:pointer-events-none"
+                        )} style={{ maxHeight: '100vh' }}>
+                            <div
+                                className="p-4 lg:p-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 rounded-t-3xl cursor-pointer lg:cursor-default"
+                                onClick={() => setIsTicketExpanded(!isTicketExpanded)}
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-brand-100 rounded-xl flex items-center justify-center relative">
+                                        <Ticket className="w-5 h-5 text-brand-600" />
+                                        {items.length > 0 && (
+                                            <div className="absolute -top-1.5 -right-1.5 bg-red-500 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border-2 border-white shadow-sm">
+                                                {items.length}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-gray-900 uppercase tracking-widest text-[11px]">Ticket de Sortie</h3>
+                                        <p className="text-[9px] font-bold text-gray-400 uppercase">{selectedSite}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {items.length > 0 && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); clearTicket(); }}
+                                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    )}
+                                    {/* Mobile Toggle Icon */}
+                                    <button className="p-2 text-gray-400 lg:hidden focus:outline-none">
+                                        <svg className={clsx("w-5 h-5 transition-transform", isTicketExpanded ? "rotate-180" : "rotate-0")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className={clsx(
+                                "flex-1 overflow-y-auto p-2 lg:p-3 space-y-2 lg:max-h-[calc(100vh-300px)]",
+                                isTicketExpanded ? "block" : "hidden lg:block"
+                            )}>
+                                {items.length === 0 ? (
+                                    <div className="h-full min-h-[120px] flex flex-col items-center justify-center text-center opacity-50 px-4">
+                                        <Package className="w-8 h-8 text-gray-300 mb-2" />
+                                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Aucun produit sélectionné</p>
+                                        <p className="text-[9px] font-bold text-gray-300 mt-1 uppercase">Cliquez sur (+) pour ajouter</p>
+                                    </div>
+                                ) : (
+                                    items.map((item) => {
+                                        const product = products.find(p => p.id === item.productId);
+                                        if (!product) return null;
+                                        return (
+                                            <div key={item.productId} className="flex items-center justify-between p-3 bg-white border border-gray-100 rounded-2xl hover:border-brand-100 transition-colors shadow-sm">
+                                                <div className="flex-1 min-w-0 pr-3">
+                                                    <h4 className="text-[11px] font-black text-gray-800 uppercase leading-snug truncate">{product.name}</h4>
+                                                    <span className="text-[8px] font-black text-brand-500 uppercase tracking-widest mt-0.5 block">Qté: {item.quantity}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1 border border-gray-100">
+                                                    <button onClick={() => updateTicket(item.productId, item.quantity - 1)} className="w-6 h-6 rounded-md bg-white flex items-center justify-center text-gray-600 shadow-sm active:scale-95"><Minus className="w-3 h-3" /></button>
+                                                    <span className="font-black text-xs text-gray-900 w-4 text-center">{item.quantity}</span>
+                                                    <button
+                                                        onClick={() => updateTicket(item.productId, item.quantity + 1)}
+                                                        disabled={item.quantity >= ((product as any)[selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam'] || 0)}
+                                                        className="w-6 h-6 rounded-md bg-white flex items-center justify-center text-brand-600 shadow-sm disabled:opacity-50"
+                                                    ><Plus className="w-3 h-3" /></button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                )}
+                            </div>
+
+                            <div className={clsx(
+                                "p-4 lg:p-5 bg-gray-50/80 border-t border-gray-100 rounded-b-3xl",
+                                !isTicketExpanded && "hidden lg:block", // Show submit button only when expanded on mobile 
+                                items.length > 0 && !isTicketExpanded && "block lg:block" // actually show summary when not expanded maybe? Let's just keep it hidden
+                            )}>
                                 <button
                                     onClick={handleSubmit}
-                                    disabled={loading}
-                                    className="w-full bg-gray-900 text-white rounded-[2rem] py-5 px-8 font-black text-xs uppercase tracking-[0.3em] shadow-2xl shadow-gray-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-4 group overflow-hidden relative"
+                                    disabled={loading || items.length === 0}
+                                    className="w-full bg-brand-600 text-white rounded-2xl py-4 px-6 font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-brand-600/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:hover:scale-100 flex items-center justify-center gap-3 relative overflow-hidden group"
                                 >
-                                    <div className="absolute inset-0 bg-brand-600 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
-                                    <div className="relative flex items-center gap-4">
-                                        {loading ? (
-                                            <RefreshCw className="animate-spin w-4 h-4" />
-                                        ) : (
-                                            <Send className="w-4 h-4" />
-                                        )}
-                                        <span>Valider {items.length} besoin{items.length > 1 ? 's' : ''}</span>
+                                    <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-500 rounded-2xl"></div>
+                                    <div className="relative flex items-center gap-3">
+                                        {loading ? <RefreshCw className="animate-spin w-4 h-4" /> : <Printer className="w-4 h-4" />}
+                                        <span>Imprimer & Valider</span>
                                     </div>
                                 </button>
+                                {items.length > 0 && (
+                                    <p className="text-center text-[8px] text-gray-400 font-bold uppercase tracking-widest mt-3">
+                                        {items.reduce((acc, curr) => acc + curr.quantity, 0)} articles au total
+                                    </p>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -956,7 +1056,7 @@ export default function Needs() {
             {/* Details Modal — Ultra Compact Premium */}
             {selectedRequest && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200">
+                    <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 print-area">
                         {/* Header */}
                         <div className="flex items-center gap-4 px-6 py-4 border-b border-gray-100 bg-white">
                             <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-lg flex-shrink-0">
@@ -1023,12 +1123,19 @@ export default function Needs() {
                         </div>
 
                         {/* Footer */}
-                        <div className="p-4 bg-gray-50/50 border-t border-gray-100">
+                        <div className="p-4 bg-gray-50/50 border-t border-gray-100 flex gap-3 no-print">
                             <button
                                 onClick={() => setSelectedRequest(null)}
-                                className="w-full py-4 bg-gray-900 text-white rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg active:scale-95"
+                                className="w-1/3 py-4 bg-white border border-gray-200 text-gray-900 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all hover:bg-gray-50 active:scale-95"
                             >
                                 Fermer
+                            </button>
+                            <button
+                                onClick={() => window.print()}
+                                className="w-2/3 py-4 bg-brand-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
+                            >
+                                <Printer className="w-4 h-4" />
+                                Imprimer
                             </button>
                         </div>
                     </div>

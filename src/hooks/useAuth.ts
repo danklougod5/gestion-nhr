@@ -27,7 +27,11 @@ export function useAuth() {
 
     useEffect(() => {
         // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        supabase.auth.getSession().then(({ data: { session }, error }) => {
+            if (error) {
+                console.error("Session error:", error.message);
+                supabase.auth.signOut().catch(() => { });
+            }
             setSession(session);
             if (session?.user) {
                 fetchProfile(session.user.id);
@@ -38,7 +42,14 @@ export function useAuth() {
         // Listen for changes
         const {
             data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
+        } = supabase.auth.onAuthStateChange(async (event, session) => {
+            if (event === 'SIGNED_OUT') {
+                setSession(null);
+                setProfile(null);
+                setLoading(false);
+                return;
+            }
+
             setSession(session);
             if (session?.user) {
                 fetchProfile(session.user.id);
@@ -50,7 +61,6 @@ export function useAuth() {
 
         return () => subscription.unsubscribe();
     }, []);
-
     return {
         session,
         loading,
