@@ -25,6 +25,13 @@ export default function Needs() {
     const [showFilters, setShowFilters] = useState(false);
     const [isTicketExpanded, setIsTicketExpanded] = useState(false);
 
+    // Browse States
+    const [viewMode, setViewMode] = useState<'categories' | 'products'>('categories');
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const categories = Array.from(new Set(products.map(p => p.category))).sort();
+
     useEffect(() => {
         if (items.length === 0) setIsTicketExpanded(false);
     }, [items.length]);
@@ -746,76 +753,172 @@ export default function Needs() {
             <div className="flex-1 px-4 py-6">
                 {activeTab === 'new' ? (
                     <div className="flex flex-col lg:flex-row gap-6 items-start h-full animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {/* Grille de Produits */}
-                        <div className="flex-1 w-full pb-32 lg:pb-8">
-                            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                                {products.map(product => {
-                                    const stockField = selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
-                                    const stock = (product as any)[stockField] || 0;
-                                    const itemInCart = items.find(i => i.productId === product.id);
-                                    const inCart = !!itemInCart;
-                                    const quantity = itemInCart?.quantity || 0;
+                        {/* Grille de Produits & Catégories */}
+                        <div className="flex-1 w-full pb-32 lg:pb-8 flex flex-col gap-4">
+                            {/* Search and Category Navigation */}
+                            <div className="bg-white p-2 rounded-2xl border border-gray-100 flex items-center gap-2 shadow-sm sticky top-0 md:top-2 z-10 transition-all">
+                                {viewMode === 'products' ? (
+                                    <button
+                                        onClick={() => { setViewMode('categories'); setActiveCategory(null); setSearchTerm(''); }}
+                                        className="p-3 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all"
+                                    >
+                                        <svg className="w-5 h-5 lg:w-4 lg:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                ) : (
+                                    <div className="pl-4">
+                                        <Search className="w-5 h-5 text-gray-300" />
+                                    </div>
+                                )}
+                                <div className="flex-1 relative">
+                                    <input
+                                        type="text"
+                                        placeholder={viewMode === 'categories' ? "Rechercher un produit ou une catégorie..." : `Rechercher dans ${activeCategory || 'les produits'}...`}
+                                        value={searchTerm}
+                                        onChange={(e) => {
+                                            setSearchTerm(e.target.value);
+                                            if (e.target.value && viewMode === 'categories') {
+                                                setViewMode('products');
+                                                setActiveCategory(null);
+                                            }
+                                        }}
+                                        className="w-full px-2 py-3 bg-transparent text-[11px] lg:text-sm font-black outline-none placeholder:text-gray-300 placeholder:font-bold uppercase tracking-wide"
+                                    />
+                                </div>
+                                {searchTerm && (
+                                    <button
+                                        onClick={() => {
+                                            setSearchTerm('');
+                                            if (!activeCategory) setViewMode('categories');
+                                        }}
+                                        className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
 
-                                    return (
-                                        <div
-                                            key={product.id}
-                                            className={clsx(
-                                                "bg-white rounded-2xl p-4 flex flex-col transition-all duration-300 select-none",
-                                                inCart
-                                                    ? "border-2 border-brand-500 shadow-md transform -translate-y-1"
-                                                    : "border border-gray-100 hover:border-brand-200 hover:shadow-lg opacity-90 hover:opacity-100",
-                                                stock <= 0 && "opacity-50 grayscale"
-                                            )}
-                                        >
-                                            <div className="flex justify-between items-start mb-3 gap-2">
-                                                <h3 className="font-black text-gray-900 text-xs uppercase leading-tight tracking-tight line-clamp-2">{product.name}</h3>
-                                                <span className={clsx(
-                                                    "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-widest whitespace-nowrap",
-                                                    stock > 0 ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
-                                                )}>
-                                                    {stock} Disp.
-                                                </span>
+                            {viewMode === 'categories' ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {categories.map(category => {
+                                        const categoryProducts = products.filter(p => p.category === category);
+                                        const count = categoryProducts.length;
+                                        return (
+                                            <div
+                                                key={category}
+                                                onClick={() => {
+                                                    setActiveCategory(category);
+                                                    setViewMode('products');
+                                                    setSearchTerm('');
+                                                }}
+                                                className="bg-white rounded-2xl p-5 border border-gray-100 hover:border-brand-300 hover:shadow-xl transition-all cursor-pointer group flex flex-col items-center justify-center text-center aspect-square md:aspect-auto md:h-32 shadow-sm"
+                                            >
+                                                <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                                    <Package className="w-6 h-6" />
+                                                </div>
+                                                <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-widest leading-tight">{category}</h3>
+                                                <p className="text-[9px] font-bold text-gray-400 mt-1 uppercase">{count} produits</p>
                                             </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {products.filter(p => {
+                                        if (searchTerm) {
+                                            return p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.category.toLowerCase().includes(searchTerm.toLowerCase());
+                                        }
+                                        if (activeCategory) {
+                                            return p.category === activeCategory;
+                                        }
+                                        return true;
+                                    }).map(product => {
+                                        const stockField = selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
+                                        const stock = (product as any)[stockField] || 0;
+                                        const itemInCart = items.find(i => i.productId === product.id);
+                                        const inCart = !!itemInCart;
+                                        const quantity = itemInCart?.quantity || 0;
 
-                                            <div className="mt-auto pt-4 flex items-center justify-between">
-                                                <div className="text-[9px] font-black text-gray-300 uppercase tracking-widest truncate max-w-[80px]">
-                                                    {product.category}
+                                        return (
+                                            <div
+                                                key={product.id}
+                                                onClick={() => {
+                                                    if (stock > 0 && !inCart) updateTicket(product.id, 1);
+                                                }}
+                                                className={clsx(
+                                                    "bg-white rounded-2xl p-4 flex flex-col transition-all duration-300 select-none cursor-pointer",
+                                                    inCart
+                                                        ? "border-2 border-brand-500 shadow-md transform -translate-y-1"
+                                                        : "border border-gray-100 hover:border-brand-200 hover:shadow-lg opacity-90 hover:opacity-100",
+                                                    stock <= 0 && "opacity-50 grayscale pointer-events-none"
+                                                )}
+                                            >
+                                                <div className="flex justify-between items-start mb-3 gap-2">
+                                                    <h3 className="font-black text-gray-900 text-[10px] lg:text-xs uppercase leading-tight tracking-tight line-clamp-2">{product.name}</h3>
+                                                    <span className={clsx(
+                                                        "px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest whitespace-nowrap",
+                                                        stock > 0 ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
+                                                    )}>
+                                                        {stock} Disp.
+                                                    </span>
                                                 </div>
 
-                                                {stock > 0 ? (
-                                                    !inCart ? (
-                                                        <button
-                                                            onClick={() => updateTicket(product.id, 1)}
-                                                            className="w-8 h-8 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-brand-50 hover:text-brand-600 transition-colors"
-                                                        >
-                                                            <Plus className="w-4 h-4" />
-                                                        </button>
+                                                <div className="mt-auto pt-4 flex items-center justify-between">
+                                                    <div className="text-[8px] lg:text-[9px] font-black text-gray-300 uppercase tracking-widest truncate max-w-[80px]">
+                                                        {product.category}
+                                                    </div>
+
+                                                    {stock > 0 ? (
+                                                        !inCart ? (
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); updateTicket(product.id, 1); }}
+                                                                className="w-8 h-8 lg:w-9 lg:h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-brand-50 hover:text-brand-600 transition-colors shadow-sm"
+                                                            >
+                                                                <Plus className="w-4 h-4" />
+                                                            </button>
+                                                        ) : (
+                                                            <div
+                                                                className="flex items-center gap-1 bg-brand-50 rounded-xl p-1 shadow-inner"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            >
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); updateTicket(product.id, quantity - 1); }}
+                                                                    className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all"
+                                                                >
+                                                                    <Minus className="w-3.5 h-3.5" />
+                                                                </button>
+                                                                <input
+                                                                    type="number"
+                                                                    min={0}
+                                                                    max={stock}
+                                                                    value={quantity || ''}
+                                                                    onChange={(e) => {
+                                                                        let val = parseInt(e.target.value);
+                                                                        if (isNaN(val)) val = 0;
+                                                                        if (val > stock) val = stock;
+                                                                        updateTicket(product.id, val);
+                                                                    }}
+                                                                    className="w-7 h-7 bg-transparent border-none text-center font-black text-sm text-brand-900 tabular-nums focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 m-0"
+                                                                />
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); updateTicket(product.id, quantity + 1); }}
+                                                                    disabled={quantity >= stock}
+                                                                    className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                >
+                                                                    <Plus className="w-3.5 h-3.5" />
+                                                                </button>
+                                                            </div>
+                                                        )
                                                     ) : (
-                                                        <div className="flex items-center gap-2 bg-brand-50 rounded-xl p-1 shadow-inner">
-                                                            <button
-                                                                onClick={() => updateTicket(product.id, quantity - 1)}
-                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all"
-                                                            >
-                                                                <Minus className="w-3.5 h-3.5" />
-                                                            </button>
-                                                            <span className="font-black text-sm text-brand-900 w-5 text-center px-1 tabular-nums">{quantity}</span>
-                                                            <button
-                                                                onClick={() => updateTicket(product.id, quantity + 1)}
-                                                                disabled={quantity >= stock}
-                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                                            >
-                                                                <Plus className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    )
-                                                ) : (
-                                                    <span className="text-[10px] font-black text-red-500 uppercase">Rupture</span>
-                                                )}
+                                                        <span className="text-[10px] font-black text-red-500 uppercase">Rupture</span>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
 
                         {/* Ticket Sidebar / Bottom Sheet */}
@@ -921,7 +1024,7 @@ export default function Needs() {
                         </div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 items-start">
                         {history.length === 0 ? (
                             <div className="col-span-full py-32 text-center bg-gray-50/20 rounded-[4rem] border-4 border-dashed border-gray-100 flex flex-col items-center">
                                 <div className="w-24 h-24 bg-gray-100 rounded-[2rem] flex items-center justify-center mb-8 opacity-40">
@@ -988,7 +1091,7 @@ export default function Needs() {
                                                 </div>
                                                 <div className="flex items-center gap-4">
                                                     {editingMovementId === m.id ? (
-                                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                        <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                                                             <input
                                                                 type="number"
                                                                 autoFocus
@@ -998,11 +1101,11 @@ export default function Needs() {
                                                                     if (e.key === 'Enter') handleEditQuantity(m, parseFloat(editValue));
                                                                     if (e.key === 'Escape') setEditingMovementId(null);
                                                                 }}
-                                                                className="w-14 px-2 py-1 bg-white border border-brand-500 rounded text-[11px] font-black text-center outline-none"
+                                                                className="w-16 px-2 py-2 bg-white border-2 border-brand-500 rounded-lg text-xs font-black text-center outline-none focus:ring-4 focus:ring-brand-50 transition-all shadow-sm"
                                                             />
-                                                            <div className="flex flex-col gap-0.5">
-                                                                <button onClick={(e) => { e.stopPropagation(); handleEditQuantity(m, parseFloat(editValue)); }} className="text-brand-600 hover:bg-brand-50 p-0.5 rounded"><Check className="w-3 h-3" /></button>
-                                                                <button onClick={(e) => { e.stopPropagation(); setEditingMovementId(null); }} className="text-gray-400 hover:bg-gray-100 p-0.5 rounded"><X className="w-3 h-3" /></button>
+                                                            <div className="flex items-center gap-1">
+                                                                <button onClick={(e) => { e.stopPropagation(); handleEditQuantity(m, parseFloat(editValue)); }} className="text-white bg-brand-500 hover:bg-brand-600 p-2 rounded-lg shadow-sm transition-all shadow-brand-100 active:scale-95"><Check className="w-4 h-4" /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); setEditingMovementId(null); }} className="text-gray-500 bg-gray-100 hover:bg-gray-200 hover:text-gray-700 p-2 rounded-lg transition-all active:scale-95"><X className="w-4 h-4" /></button>
                                                             </div>
                                                         </div>
                                                     ) : (

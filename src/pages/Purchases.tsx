@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send } from 'lucide-react';
+import { Plus, Trash2, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import type { Product, Site } from '../types';
@@ -28,6 +28,13 @@ export default function Purchases() {
         site: '',
         search: ''
     });
+
+    // Browse States
+    const [viewMode, setViewMode] = useState<'categories' | 'products'>('categories');
+    const [activeCategory, setActiveCategory] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const categories = Array.from(new Set(products.map(p => p.category))).sort();
 
     useEffect(() => {
         if (profile) {
@@ -123,18 +130,17 @@ export default function Purchases() {
         }
     };
 
-    const addItem = () => {
-        setItems([...items, { productId: '', quantity: 0, site: selectedSite }]);
-    };
-
-    const removeItem = (index: number) => {
-        setItems(items.filter((_, i) => i !== index));
-    };
-
-    const updateItem = (index: number, field: string, value: any) => {
-        const newItems = [...items];
-        newItems[index] = { ...newItems[index], [field]: value };
-        setItems(newItems);
+    const updateTicket = (productId: string, newQuantity: number) => {
+        if (newQuantity <= 0) {
+            setItems(items.filter(i => i.productId !== productId));
+        } else {
+            const existing = items.find(i => i.productId === productId);
+            if (existing) {
+                setItems(items.map(i => i.productId === productId ? { ...i, quantity: newQuantity } : i));
+            } else {
+                setItems([...items, { productId, quantity: newQuantity, site: selectedSite }]);
+            }
+        }
     };
 
     const handleSubmit = async () => {
@@ -351,93 +357,178 @@ export default function Purchases() {
 
                 {activeTab === 'new' ? (
                     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                        {/* Items Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                            {items.map((item, idx) => (
-                                <div key={idx} className="bg-white rounded-[2rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-500 group relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-24 h-24 bg-brand-50 rounded-full -mr-12 -mt-12 transition-transform duration-700 group-hover:scale-150" />
+                        <div className="flex-1 w-full pb-32 lg:pb-8 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                            {/* Search and Category Navigation */}
+                            <div className="bg-white p-2 rounded-2xl border border-gray-100 flex items-center gap-2 shadow-sm sticky top-0 md:top-2 z-10 transition-all">
+                                {viewMode === 'products' ? (
+                                    <button
+                                        onClick={() => { setViewMode('categories'); setActiveCategory(null); setSearchTerm(''); }}
+                                        className="p-3 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all"
+                                    >
+                                        <svg className="w-5 h-5 lg:w-4 lg:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                    </button>
+                                ) : (
+                                    <div className="pl-4">
+                                        <Search className="w-5 h-5 text-gray-300" />
+                                    </div>
+                                )}
+                                <div className="flex-1 relative">
+                                    <input
+                                        type="text"
+                                        placeholder={viewMode === 'categories' ? "Rechercher un produit ou une catégorie..." : `Rechercher dans ${activeCategory || 'les produits'}...`}
+                                        value={searchTerm}
+                                        onChange={(e) => {
+                                            setSearchTerm(e.target.value);
+                                            if (e.target.value && viewMode === 'categories') {
+                                                setViewMode('products');
+                                                setActiveCategory(null);
+                                            }
+                                        }}
+                                        className="w-full px-2 py-3 bg-transparent text-[11px] lg:text-sm font-black outline-none placeholder:text-gray-300 placeholder:font-bold uppercase tracking-wide"
+                                    />
+                                </div>
+                                {searchTerm && (
+                                    <button
+                                        onClick={() => {
+                                            setSearchTerm('');
+                                            if (!activeCategory) setViewMode('categories');
+                                        }}
+                                        className="p-3 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
 
-                                    <div className="relative space-y-5">
-                                        <div className="flex justify-between items-center">
-                                            <div className="w-8 h-8 bg-gray-50 text-brand-600 rounded-lg flex items-center justify-center font-black text-xs border border-brand-100">
-                                                {idx + 1}
-                                            </div>
-                                            <button onClick={() => removeItem(idx)} className="p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Produit</label>
-                                            <select
-                                                value={item.productId}
-                                                onChange={(e) => updateItem(idx, 'productId', e.target.value)}
-                                                className="w-full bg-gray-50 border-transparent rounded-xl py-3 px-4 font-black text-gray-900 text-xs focus:bg-white focus:border-brand-200 focus:ring-4 focus:ring-brand-500/5 outline-none transition-all appearance-none cursor-pointer"
+                            {viewMode === 'categories' ? (
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {categories.map(category => {
+                                        const categoryProducts = products.filter(p => p.category === category);
+                                        const count = categoryProducts.length;
+                                        return (
+                                            <div
+                                                key={category}
+                                                onClick={() => {
+                                                    setActiveCategory(category);
+                                                    setViewMode('products');
+                                                    setSearchTerm('');
+                                                }}
+                                                className="bg-white rounded-2xl p-5 border border-gray-100 hover:border-brand-300 hover:shadow-xl transition-all cursor-pointer group flex flex-col items-center justify-center text-center aspect-square md:aspect-auto md:h-32 shadow-sm"
                                             >
-                                                <option value="">Sélectionner...</option>
-                                                {products.map(p => (
-                                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                                ))}
-                                            </select>
-                                        </div>
+                                                <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                                    <Package className="w-6 h-6" />
+                                                </div>
+                                                <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-widest leading-tight">{category}</h3>
+                                                <p className="text-[9px] font-bold text-gray-400 mt-1 uppercase">{count} produits</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    {products.filter(p => {
+                                        if (searchTerm) {
+                                            return p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.category.toLowerCase().includes(searchTerm.toLowerCase());
+                                        }
+                                        if (activeCategory) {
+                                            return p.category === activeCategory;
+                                        }
+                                        return true;
+                                    }).map(product => {
+                                        const stockField = selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
+                                        const stock = (product as any)[stockField] || 0;
+                                        const itemInCart = items.find(i => i.productId === product.id);
+                                        const inCart = !!itemInCart;
+                                        const quantity = itemInCart?.quantity || 0;
 
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-1.5">
-                                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Quantité</label>
-                                                <div className="relative group/input">
-                                                    <input
-                                                        type="number"
-                                                        value={item.quantity || ''}
-                                                        onChange={(e) => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                                                        className="w-full bg-gray-50 border-transparent rounded-xl py-3 px-4 font-black text-gray-900 text-lg focus:bg-white focus:border-brand-200 outline-none transition-all tabular-nums"
-                                                        placeholder="0"
-                                                    />
+                                        return (
+                                            <div
+                                                key={product.id}
+                                                onClick={() => {
+                                                    if (!inCart) updateTicket(product.id, 1);
+                                                }}
+                                                className={clsx(
+                                                    "bg-white rounded-2xl p-4 flex flex-col transition-all duration-300 select-none cursor-pointer",
+                                                    inCart
+                                                        ? "border-2 border-brand-500 shadow-md transform -translate-y-1"
+                                                        : "border border-gray-100 hover:border-brand-200 hover:shadow-lg opacity-90 hover:opacity-100"
+                                                )}
+                                            >
+                                                <div className="flex justify-between items-start mb-3 gap-2">
+                                                    <h3 className="font-black text-gray-900 text-[10px] lg:text-xs uppercase leading-tight tracking-tight line-clamp-2">{product.name}</h3>
+                                                    <span className="px-2 py-0.5 rounded-lg text-[8px] font-black uppercase tracking-widest whitespace-nowrap bg-red-50 text-red-600 border border-red-100">
+                                                        {stock} En stock
+                                                    </span>
+                                                </div>
+
+                                                <div className="mt-auto pt-4 flex items-center justify-between">
+                                                    <div className="text-[8px] lg:text-[9px] font-black text-gray-300 uppercase tracking-widest truncate max-w-[80px]">
+                                                        {product.category}
+                                                    </div>
+
+                                                    {!inCart ? (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); updateTicket(product.id, 1); }}
+                                                            className="w-8 h-8 lg:w-9 lg:h-9 rounded-xl bg-gray-50 flex items-center justify-center text-gray-400 hover:bg-brand-50 hover:text-brand-600 transition-colors shadow-sm"
+                                                        >
+                                                            <Plus className="w-4 h-4" />
+                                                        </button>
+                                                    ) : (
+                                                        <div
+                                                            className="flex items-center gap-1 bg-brand-50 rounded-xl p-1 shadow-inner"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); updateTicket(product.id, quantity - 1); }}
+                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all"
+                                                            >
+                                                                <Minus className="w-3.5 h-3.5" />
+                                                            </button>
+                                                            <input
+                                                                type="number"
+                                                                min={0}
+                                                                value={quantity || ''}
+                                                                onChange={(e) => {
+                                                                    let val = parseInt(e.target.value);
+                                                                    if (isNaN(val)) val = 0;
+                                                                    updateTicket(product.id, val);
+                                                                }}
+                                                                className="w-7 h-7 bg-transparent border-none text-center font-black text-sm text-brand-900 tabular-nums focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none p-0 m-0"
+                                                            />
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); updateTicket(product.id, quantity + 1); }}
+                                                                className="w-7 h-7 rounded-lg bg-white flex items-center justify-center text-brand-600 shadow-sm active:scale-95 transition-all"
+                                                            >
+                                                                <Plus className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="space-y-1.5">
-                                                <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest ml-1">Site</label>
-                                                <select
-                                                    value={item.site}
-                                                    onChange={(e) => updateItem(idx, 'site', e.target.value)}
-                                                    className="w-full bg-gray-50 border-transparent rounded-xl py-3 px-4 font-black text-gray-900 text-[10px] uppercase tracking-widest focus:bg-white focus:border-brand-200 outline-none transition-all"
-                                                >
-                                                    <option value="abidjan">Abidjan</option>
-                                                    <option value="bassam">Bassam</option>
-                                                </select>
-                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {/* Submit Section */}
+                            {items.length > 0 && (
+                                <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-[90] animate-in slide-in-from-bottom-10 duration-700">
+                                    <button
+                                        onClick={handleSubmit}
+                                        disabled={loading}
+                                        className="w-full bg-gray-900 text-white rounded-[2rem] py-5 px-8 font-black text-xs uppercase tracking-[0.3em] shadow-2xl shadow-gray-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-4 group overflow-hidden relative"
+                                    >
+                                        <div className="absolute inset-0 bg-brand-600 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
+                                        <div className="relative flex items-center gap-4">
+                                            {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                            <span>Valider {items.length} achat{items.length > 1 ? 's' : ''} ({items.reduce((acc, curr) => acc + curr.quantity, 0)} au total)</span>
                                         </div>
-                                    </div>
+                                    </button>
                                 </div>
-                            ))}
-
-                            {/* Add Item Button */}
-                            <button
-                                onClick={addItem}
-                                className="h-full min-h-[180px] border-2 border-dashed border-gray-200 rounded-[2rem] bg-white/50 text-gray-400 hover:border-brand-200 hover:text-brand-600 hover:bg-brand-50/30 transition-all duration-500 flex flex-col items-center justify-center p-6 group"
-                            >
-                                <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 group-hover:bg-brand-100 transition-all border border-transparent group-hover:border-brand-200">
-                                    <Plus className="w-6 h-6 group-hover:rotate-90 transition-transform duration-500" />
-                                </div>
-                                <span className="text-[10px] font-black uppercase tracking-widest">Ajouter un article</span>
-                            </button>
+                            )}
                         </div>
-
-                        {/* Submit Section */}
-                        {items.length > 0 && (
-                            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-md px-4 z-[90] animate-in slide-in-from-bottom-10 duration-700">
-                                <button
-                                    onClick={handleSubmit}
-                                    disabled={loading}
-                                    className="w-full bg-gray-900 text-white rounded-[2rem] py-5 px-8 font-black text-xs uppercase tracking-[0.3em] shadow-2xl shadow-gray-900/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-4 group overflow-hidden relative"
-                                >
-                                    <div className="absolute inset-0 bg-brand-600 translate-y-full group-hover:translate-y-0 transition-transform duration-500"></div>
-                                    <div className="relative flex items-center gap-4">
-                                        {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                                        <span>Valider {items.length} achat{items.length > 1 ? 's' : ''}</span>
-                                    </div>
-                                </button>
-                            </div>
-                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">

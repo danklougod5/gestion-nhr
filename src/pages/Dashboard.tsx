@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Package, TrendingUp, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Package, TrendingUp, AlertTriangle, CheckCircle, Clock, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useNavigate } from 'react-router-dom';
 import type { Site } from '../types';
 import clsx from 'clsx';
 
 export default function Dashboard() {
     const { profile } = useAuth();
+    const navigate = useNavigate();
     const [selectedSite, setSelectedSite] = useState<Site>('abidjan');
+    const [recentActivity, setRecentActivity] = useState<any[]>([]);
     const [stats, setStats] = useState([
-        { name: 'Total Produits', value: '0', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: '+12% ce mois' },
-        { name: 'Bons en attente', value: '0', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Action requise' },
-        { name: 'Alertes Stock', value: '0', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: 'Urgences' },
-        { name: 'Livraisons du jour', value: '0', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Terminé' },
+        { name: 'Total Produits', value: '0', path: '/sites', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: '+12% ce mois' },
+        { name: 'Bons en attente', value: '0', path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Action requise' },
+        { name: 'Alertes Stock', value: '0', path: '/sites', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: 'Urgences' },
+        { name: 'Livraisons du jour', value: '0', path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Terminé' },
     ]);
     const [loading, setLoading] = useState(true);
 
@@ -52,11 +55,21 @@ export default function Dashboard() {
                     }
                 });
 
+                const { data: logs } = await supabase
+                    .from('audit_logs')
+                    .select('*')
+                    .limit(5)
+                    .order('created_at', { ascending: false });
+
+                if (logs) {
+                    setRecentActivity(logs);
+                }
+
                 setStats([
-                    { name: 'Total Produits', value: total.toString(), icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: 'Catalogue Actif' },
-                    { name: 'Bons en attente', value: '0', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Flux de sortie' },
-                    { name: 'Alertes Stock', value: alerts.toString(), icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: alerts > 0 ? `${alerts} à réapprov.` : 'Stock optimal' },
-                    { name: 'Livraisons du jour', value: '0', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Entrées stock' },
+                    { name: 'Total Produits', value: total.toString(), path: '/sites', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: 'Catalogue Actif' },
+                    { name: 'Bons en attente', value: '0', path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Flux de sortie' },
+                    { name: 'Alertes Stock', value: alerts.toString(), path: '/sites', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: alerts > 0 ? `${alerts} à réapprov.` : 'Stock optimal' },
+                    { name: 'Livraisons du jour', value: '0', path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Entrées stock' },
                 ]);
             }
         } catch (error) {
@@ -112,8 +125,9 @@ export default function Dashboard() {
                     {stats.map((item, idx) => (
                         <div
                             key={item.name}
+                            onClick={() => navigate((item as any).path || '/')}
                             className={clsx(
-                                "premium-card group relative overflow-hidden flex flex-col justify-between min-h-[180px] sm:min-h-[220px] !p-6 sm:!p-8",
+                                "premium-card group relative overflow-hidden flex flex-col justify-between min-h-[180px] sm:min-h-[220px] !p-6 sm:!p-8 cursor-pointer hover:shadow-2xl hover:shadow-brand-100 transition-all",
                                 idx === 0 && "lg:scale-105 ring-4 ring-brand-50 lg:z-10 bg-white"
                             )}
                         >
@@ -148,34 +162,45 @@ export default function Dashboard() {
             )}
 
             {/* Bottom Section: Activity & Quick Actions */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 items-start">
                 <div className="lg:col-span-2 premium-card !p-6 sm:!p-8">
                     <div className="flex items-center justify-between mb-6 sm:mb-8">
                         <h3 className="text-lg sm:text-xl font-black text-gray-900 flex items-center gap-2 sm:gap-3">
                             <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-brand-600" />
                             Activité Récente
                         </h3>
-                        <button className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-brand-600 hover:text-brand-700 transition-colors">Voir tout</button>
+                        <button onClick={() => navigate('/settings')} className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-brand-600 hover:text-brand-700 transition-colors">Voir tout</button>
                     </div>
                     <div className="space-y-4 sm:space-y-6">
-                        {[1, 2, 3].map(i => (
-                            <div key={i} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl sm:rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer border border-transparent hover:border-gray-100">
-                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 rounded-lg sm:rounded-xl flex items-center justify-center text-gray-400">
+                        {recentActivity.length === 0 ? (
+                            <div className="text-center py-12">
+                                <p className="text-sm font-medium text-gray-400 italic">Mise à jour activée, en attente d'événements...</p>
+                            </div>
+                        ) : recentActivity.map((log: any) => (
+                            <div
+                                key={log.id}
+                                onClick={() => navigate('/settings')}
+                                className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl sm:rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer border border-transparent hover:border-gray-100 group"
+                            >
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 group-hover:bg-brand-50 rounded-lg sm:rounded-xl flex items-center justify-center text-gray-400 group-hover:text-brand-500 transition-colors">
                                     <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
                                 </div>
                                 <div className="flex-1">
-                                    <div className="h-3.5 sm:h-4 w-1/3 bg-gray-100 rounded mb-1.5 sm:mb-2" />
-                                    <div className="h-2.5 sm:h-3 w-1/2 bg-gray-50 rounded" />
+                                    <div className="text-[11px] sm:text-xs font-black text-gray-900 uppercase">
+                                        {log.action_type === 'CREATE' ? 'Nouveau' : log.action_type === 'UPDATE' ? 'Modification' : log.action_type === 'DELETE' ? 'Suppression' : log.action_type} - {log.entity_type === 'NEEDS_REQUEST' ? 'Bon de sortie' : log.entity_type === 'STOCK_MOVEMENT' ? 'Mouvement Stock' : log.entity_type === 'PRODUCT' ? 'Produit' : log.entity_type}
+                                    </div>
+                                    <div className="text-[9px] sm:text-[10px] text-gray-400 mt-1 font-bold">
+                                        par <span className="uppercase text-brand-600">{log.user_name}</span> - {log.details?.name || 'Action effectuée'}
+                                    </div>
                                 </div>
-                                <div className="text-right">
-                                    <div className="h-3.5 sm:h-4 w-12 sm:w-16 bg-gray-100 rounded mb-1.5 sm:mb-2 ml-auto" />
-                                    <div className="h-2.5 sm:h-3 w-10 sm:w-12 bg-gray-50 rounded ml-auto" />
+                                <div className="text-right flex flex-col items-end justify-center gap-1">
+                                    <div className="text-[9px] sm:text-[10px] font-black text-gray-400 uppercase">
+                                        {new Date(log.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                    <ChevronRight className="w-4 h-4 text-gray-300 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
                                 </div>
                             </div>
                         ))}
-                        <div className="text-center py-4">
-                            <p className="text-sm font-medium text-gray-400 italic">Mise à jour en temps réel activée...</p>
-                        </div>
                     </div>
                 </div>
 

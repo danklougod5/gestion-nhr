@@ -807,8 +807,8 @@ export default function Sites() {
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Stock Abidjan</label>
                                             <input
                                                 type="number"
-                                                value={formData.stock_abidjan}
-                                                onChange={(e) => setFormData({ ...formData, stock_abidjan: parseInt(e.target.value) || 0 })}
+                                                value={formData.stock_abidjan === 0 ? '' : formData.stock_abidjan}
+                                                onChange={(e) => setFormData({ ...formData, stock_abidjan: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 })}
                                                 className="w-full px-4 py-3 bg-brand-50/30 border border-brand-100 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none transition-all font-bold text-sm text-brand-700"
                                             />
                                         </div>
@@ -818,8 +818,8 @@ export default function Sites() {
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Stock Bassam</label>
                                             <input
                                                 type="number"
-                                                value={formData.stock_bassam}
-                                                onChange={(e) => setFormData({ ...formData, stock_bassam: parseInt(e.target.value) || 0 })}
+                                                value={formData.stock_bassam === 0 ? '' : formData.stock_bassam}
+                                                onChange={(e) => setFormData({ ...formData, stock_bassam: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 })}
                                                 className="w-full px-4 py-3 bg-orange-50/30 border border-orange-100 rounded-xl focus:bg-white focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition-all font-bold text-sm text-orange-700"
                                             />
                                         </div>
@@ -828,8 +828,8 @@ export default function Sites() {
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Seuil Alerte</label>
                                         <input
                                             type="number"
-                                            value={formData.min_threshold}
-                                            onChange={(e) => setFormData({ ...formData, min_threshold: parseInt(e.target.value) || 0 })}
+                                            value={formData.min_threshold === 0 ? '' : formData.min_threshold}
+                                            onChange={(e) => setFormData({ ...formData, min_threshold: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 })}
                                             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none transition-all font-bold text-sm text-red-600"
                                         />
                                     </div>
