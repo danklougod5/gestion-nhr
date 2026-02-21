@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
+import { Plus, Trash2, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import type { Product, Site } from '../types';
@@ -381,10 +381,10 @@ export default function Purchases() {
                                         value={searchTerm}
                                         onChange={(e) => {
                                             setSearchTerm(e.target.value);
-                                            if (e.target.value && viewMode === 'categories') {
-                                                setViewMode('products');
-                                                setActiveCategory(null);
-                                            }
+                                            // if (e.target.value && viewMode === 'categories') {
+                                            //     setViewMode('products');
+                                            //     setActiveCategory(null);
+                                            // }
                                         }}
                                         className="w-full px-2 py-3 bg-transparent text-[11px] lg:text-sm font-black outline-none placeholder:text-gray-300 placeholder:font-bold uppercase tracking-wide"
                                     />
@@ -404,27 +404,29 @@ export default function Purchases() {
 
                             {viewMode === 'categories' ? (
                                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
-                                    {categories.map(category => {
-                                        const categoryProducts = products.filter(p => p.category === category);
-                                        const count = categoryProducts.length;
-                                        return (
-                                            <div
-                                                key={category}
-                                                onClick={() => {
-                                                    setActiveCategory(category);
-                                                    setViewMode('products');
-                                                    setSearchTerm('');
-                                                }}
-                                                className="bg-white rounded-2xl p-5 border border-gray-100 hover:border-brand-300 hover:shadow-xl transition-all cursor-pointer group flex flex-col items-center justify-center text-center aspect-square md:aspect-auto md:h-32 shadow-sm"
-                                            >
-                                                <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                                                    <Package className="w-6 h-6" />
+                                    {categories
+                                        .filter(category => category.toLowerCase().includes(searchTerm.toLowerCase()))
+                                        .map(category => {
+                                            const categoryProducts = products.filter(p => p.category === category);
+                                            const count = categoryProducts.length;
+                                            return (
+                                                <div
+                                                    key={category}
+                                                    onClick={() => {
+                                                        setActiveCategory(category);
+                                                        setViewMode('products');
+                                                        setSearchTerm('');
+                                                    }}
+                                                    className="bg-white rounded-2xl p-5 border border-gray-100 hover:border-brand-300 hover:shadow-xl transition-all cursor-pointer group flex flex-col items-center justify-center text-center aspect-square md:aspect-auto md:h-32 shadow-sm"
+                                                >
+                                                    <div className="w-12 h-12 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                                                        <Package className="w-6 h-6" />
+                                                    </div>
+                                                    <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-widest leading-tight">{category}</h3>
+                                                    <p className="text-[9px] font-bold text-gray-400 mt-1 uppercase">{count} produits</p>
                                                 </div>
-                                                <h3 className="font-black text-gray-900 text-[11px] uppercase tracking-widest leading-tight">{category}</h3>
-                                                <p className="text-[9px] font-bold text-gray-400 mt-1 uppercase">{count} produits</p>
-                                            </div>
-                                        );
-                                    })}
+                                            );
+                                        })}
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
