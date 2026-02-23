@@ -148,7 +148,7 @@ export default function Needs() {
             const { data, error } = await supabase
                 .from('products')
                 .select('*')
-                .eq('site', selectedSite)
+                .or(`site.eq.${selectedSite},site.eq.both`)
                 .neq('category', 'ARCHIVED')
                 .order('name', { ascending: true });
 

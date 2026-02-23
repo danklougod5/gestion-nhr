@@ -1,5 +1,5 @@
 
-export type Site = 'abidjan' | 'bassam';
+export type Site = 'abidjan' | 'bassam' | 'both';
 export type UserRole = 'admin' | 'gouvernante' | 'service';
 
 export interface UserPermissions {

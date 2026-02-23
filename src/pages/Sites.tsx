@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, Beef, Coffee, Carrot, LayoutGrid } from 'lucide-react';
+import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronDown, Beef, Coffee, Carrot, LayoutGrid, FileUp } from 'lucide-react';
 import type { Product, Site } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -14,6 +14,10 @@ export default function Sites() {
     const [loading, setLoading] = useState(true);
     const [selectedSite, setSelectedSite] = useState<Site>('abidjan');
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Category dropdown states
+    const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
+    const [categorySearchQuery, setCategorySearchQuery] = useState('');
 
     // CRUD States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -41,6 +45,10 @@ export default function Sites() {
 
     // Product creation target sites
     const [targetSites, setTargetSites] = useState<'abidjan' | 'bassam' | 'both'>('abidjan');
+
+    // Import states
+    const [showImportModal, setShowImportModal] = useState(false);
+    const [importTargetSite, setImportTargetSite] = useState<'abidjan' | 'bassam' | 'both'>('abidjan');
 
     // Advanced Filter State
     const [statusFilter, setStatusFilter] = useState<'all' | 'low' | 'out'>('all');
@@ -96,7 +104,7 @@ export default function Sites() {
             const { data, error } = await supabase
                 .from('products')
                 .select('*')
-                .eq('site', selectedSite) // Filtrer par site pour éviter les doublons
+                .or(`site.eq.${selectedSite},site.eq.both`) // Fetch site-specific OR shared products
                 .neq('category', 'ARCHIVED')
                 .order('name', { ascending: true });
 
@@ -131,6 +139,8 @@ export default function Sites() {
             });
             setTargetSites(selectedSite); // Par défaut, le site actuellement sélectionné
         }
+        setIsCategoryDropdownOpen(false);
+        setCategorySearchQuery('');
         setIsModalOpen(true);
     };
 
@@ -238,6 +248,10 @@ export default function Sites() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!formData.category) {
+            toast.error("Veuillez sélectionner une catégorie");
+            return;
+        }
         try {
             setLoading(true);
             if (isEditing && currentProduct?.id) {
@@ -247,9 +261,9 @@ export default function Sites() {
                     .update({
                         name: formData.name,
                         category: formData.category,
-                        min_threshold: formData.min_threshold,
-                        stock_abidjan: formData.stock_abidjan,
-                        stock_bassam: formData.stock_bassam,
+                        min_threshold: formData.min_threshold || 0,
+                        stock_abidjan: formData.stock_abidjan || 0,
+                        stock_bassam: formData.stock_bassam || 0,
                         image_url: formData.image_url
                     })
                     .eq('id', currentProduct.id);
@@ -263,7 +277,7 @@ export default function Sites() {
                         .update({
                             name: formData.name,
                             category: formData.category,
-                            min_threshold: formData.min_threshold,
+                            min_threshold: formData.min_threshold || 0,
                             image_url: formData.image_url
                         })
                         .eq('name', currentProduct.name);
@@ -295,9 +309,9 @@ export default function Sites() {
                         details: {
                             name: formData.name,
                             changes: {
-                                stock_abidjan: formData.stock_abidjan,
-                                stock_bassam: formData.stock_bassam,
-                                min_threshold: formData.min_threshold
+                                stock_abidjan: formData.stock_abidjan || 0,
+                                stock_bassam: formData.stock_bassam || 0,
+                                min_threshold: formData.min_threshold || 0
                             }
                         }
                     }, profile);
@@ -305,45 +319,63 @@ export default function Sites() {
 
                 toast.success('Produit mis à jour');
             } else {
-                // Determine which sites to create product in
-                const sitesToCreate = targetSites === 'both' ? ['abidjan', 'bassam'] : [targetSites];
+                // Consolidated Creation Logic
+                const targetSiteValue = targetSites;
+                const { data: newP, error } = await supabase
+                    .from('products')
+                    .insert([{
+                        name: formData.name,
+                        category: formData.category,
+                        min_threshold: formData.min_threshold,
+                        stock_abidjan: formData.stock_abidjan || 0,
+                        stock_bassam: formData.stock_bassam || 0,
+                        image_url: formData.image_url,
+                        created_by: profile?.id,
+                        unit: 'unit',
+                        site: targetSiteValue
+                    }])
+                    .select().single();
 
-                for (const site of sitesToCreate) {
-                    const stockValue = site === 'abidjan' ? formData.stock_abidjan : formData.stock_bassam;
-                    const { data: newP, error } = await supabase
-                        .from('products')
-                        .insert([{
-                            name: formData.name,
-                            category: formData.category,
-                            min_threshold: formData.min_threshold,
-                            stock_abidjan: site === 'abidjan' ? formData.stock_abidjan : 0,
-                            stock_bassam: site === 'bassam' ? formData.stock_bassam : 0,
-                            image_url: formData.image_url,
-                            created_by: profile?.id,
-                            unit: 'unit',
-                            site: site
-                        }])
-                        .select().single();
-                    if (error) throw error;
+                if (error) throw error;
 
-                    // Log initial stock movement
-                    if (stockValue && stockValue > 0) {
+                // Log initial stock movement(s)
+                if (targetSiteValue === 'both') {
+                    if ((formData.stock_abidjan || 0) > 0) {
                         await supabase.from('stock_movements').insert([{
-                            product_id: newP.id, type: 'IN', quantity: stockValue,
-                            site: site, performed_by: profile?.id, notes: 'Stock initial (Création)'
+                            product_id: newP.id, type: 'IN', quantity: formData.stock_abidjan || 0,
+                            site: 'abidjan', performed_by: profile?.id, notes: 'Stock initial Abidjan (Création)'
                         }]);
                     }
-
-                    // Add Audit Log
-                    if (profile) {
-                        await logAudit({
-                            action_type: 'CREATE',
-                            entity_type: 'PRODUCT',
-                            entity_id: newP.id,
-                            site: site,
-                            details: { name: formData.name, category: formData.category, initial_stock: stockValue }
-                        }, profile);
+                    if ((formData.stock_bassam || 0) > 0) {
+                        await supabase.from('stock_movements').insert([{
+                            product_id: newP.id, type: 'IN', quantity: formData.stock_bassam || 0,
+                            site: 'bassam', performed_by: profile?.id, notes: 'Stock initial Bassam (Création)'
+                        }]);
                     }
+                } else {
+                    const stockValue = targetSiteValue === 'abidjan' ? (formData.stock_abidjan || 0) : (formData.stock_bassam || 0);
+                    if (stockValue > 0) {
+                        await supabase.from('stock_movements').insert([{
+                            product_id: newP.id, type: 'IN', quantity: stockValue,
+                            site: targetSiteValue, performed_by: profile?.id, notes: 'Stock initial (Création)'
+                        }]);
+                    }
+                }
+
+                // Add Audit Log
+                if (profile) {
+                    await logAudit({
+                        action_type: 'CREATE',
+                        entity_type: 'PRODUCT',
+                        entity_id: newP.id,
+                        site: targetSiteValue,
+                        details: {
+                            name: formData.name,
+                            category: formData.category,
+                            stock_abidjan: formData.stock_abidjan || 0,
+                            stock_bassam: formData.stock_bassam || 0
+                        }
+                    }, profile);
                 }
 
                 toast.success(targetSites === 'both' ? 'Produit ajouté aux deux sites !' : 'Produit ajouté !');
@@ -355,6 +387,150 @@ export default function Sites() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const content = event.target?.result as string;
+                const lines = content.split(/\r?\n/);
+                let currentCategory = '';
+                const parsedProducts: { name: string; category: string; stock: number; min_threshold: number }[] = [];
+
+                for (const rawLine of lines) {
+                    const line = rawLine.trim();
+                    if (!line) continue; // Ignorer les lignes vides
+
+                    if (line.startsWith('#')) {
+                        // Ligne de catégorie : # Boissons
+                        currentCategory = line.replace(/^#+\s*/, '').trim();
+                    } else if (currentCategory) {
+                        // Split by '-' or '|' or ',' to try to get optional quantities
+                        // Format: Produit - Stock - Seuil  (e.g., Coca Cola - 50 - 10)
+                        const parts = line.split(/\s*-\s*|\s*\|\s*|\s*,\s*/);
+
+                        const name = parts[0].trim();
+                        let stock = 0;
+                        let min_threshold = 10; // Default
+
+                        if (parts.length >= 2) {
+                            const parsedStock = parseInt(parts[1], 10);
+                            if (!isNaN(parsedStock)) stock = parsedStock;
+                        }
+
+                        if (parts.length >= 3) {
+                            const parsedThreshold = parseInt(parts[2], 10);
+                            if (!isNaN(parsedThreshold)) min_threshold = parsedThreshold;
+                        }
+
+                        parsedProducts.push({ name, category: currentCategory, stock, min_threshold });
+                    }
+                }
+
+                if (parsedProducts.length === 0) {
+                    toast.error("Aucun produit trouvé. Vérifie le format du fichier (# Catégorie puis les produits en dessous).");
+                    return;
+                }
+
+                setLoading(true);
+
+                let addedCount = 0;
+                let skippedCount = 0;
+                let errorCount = 0;
+
+                // Consolidated Import Logic
+                for (const product of parsedProducts) {
+                    if (!product.name || !product.category) {
+                        errorCount++;
+                        continue;
+                    }
+
+                    // Check if category exists, if not, create it
+                    let categoryId = dbCategories.find(c => c.name.toLowerCase() === product.category.toLowerCase())?.id;
+                    if (!categoryId) {
+                        const { data: newCat, error: catError } = await supabase
+                            .from('categories')
+                            .insert([{ name: product.category }])
+                            .select().single();
+
+                        if (catError) {
+                            errorCount++;
+                            continue;
+                        }
+                        if (newCat) {
+                            setDbCategories(prev => [...prev, newCat]);
+                            categoryId = newCat.id;
+                        }
+                    }
+
+                    // For 'both', we check if a shared or site-specific product exists
+                    // To avoid duplicates, we look for any product with same name that is not archived
+                    const { data: existing } = await supabase
+                        .from('products')
+                        .select('id, site, stock_abidjan, stock_bassam')
+                        .ilike('name', product.name)
+                        .neq('category', 'ARCHIVED')
+                        .limit(1);
+
+                    if (existing && existing.length > 0) {
+                        // Product already exists somewhere. 
+                        // If we are importing for 'both' and it's currently only for one site, we could upgrade it.
+                        // But for simplicity of "Skip", we just skip.
+                        skippedCount++;
+                        continue;
+                    }
+
+                    const { error } = await supabase
+                        .from('products')
+                        .insert([{
+                            name: product.name,
+                            category: product.category,
+                            min_threshold: product.min_threshold,
+                            stock_abidjan: (importTargetSite === 'abidjan' || importTargetSite === 'both') ? product.stock : 0,
+                            stock_bassam: (importTargetSite === 'bassam' || importTargetSite === 'both') ? product.stock : 0,
+                            image_url: '',
+                            created_by: profile?.id,
+                            unit: 'unit',
+                            site: importTargetSite
+                        }]);
+
+                    if (error) {
+                        errorCount++;
+                    } else {
+                        addedCount++;
+                    }
+                }
+
+                if (addedCount > 0) {
+                    toast.success(`${addedCount} produit(s) importé(s) avec succès !`);
+                    fetchProducts();
+                    setShowImportModal(false);
+                }
+                if (skippedCount > 0) {
+                    toast(`${skippedCount} produit(s) existant(s) ignoré(s).`, { icon: 'ℹ️' });
+                }
+                if (errorCount > 0) {
+                    toast.error(`${errorCount} opération(s) ont échoué lors de l'import.`);
+                }
+                if (addedCount === 0 && skippedCount > 0 && errorCount === 0) {
+                    setShowImportModal(false);
+                }
+
+            } catch (error) {
+                toast.error("Une erreur s'est produite lors du traitement du fichier.");
+                console.error(error);
+            } finally {
+                setLoading(false);
+                // Reset file input
+                e.target.value = '';
+            }
+        };
+
+        reader.readAsText(file);
     };
 
     const filteredProducts = products.filter(product => {
@@ -409,6 +585,15 @@ export default function Sites() {
                             >
                                 <Plus className="w-4 h-4" />
                                 <span>Nouveau</span>
+                            </button>
+                        )}
+                        {(profile?.role === 'admin' || profile?.permissions.edit_inventory) && (
+                            <button
+                                onClick={() => setShowImportModal(true)}
+                                className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
+                            >
+                                <FileUp className="w-4 h-4" />
+                                <span className="hidden sm:inline">Importer TXT</span>
                             </button>
                         )}
                     </div>
@@ -786,17 +971,69 @@ export default function Sites() {
                                             required
                                         />
                                     </div>
-                                    <div className="space-y-1.5">
+                                    <div className="space-y-1.5 relative z-50">
                                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Catégorie</label>
-                                        <select
-                                            value={formData.category}
-                                            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none transition-all font-bold text-sm text-gray-900 appearance-none cursor-pointer"
-                                            required
-                                        >
-                                            <option value="">Choisir...</option>
-                                            {dbCategories.map(cat => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
-                                        </select>
+                                        <div className="relative">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCategoryDropdownOpen(!isCategoryDropdownOpen)}
+                                                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 outline-none transition-all font-bold text-sm text-left flex items-center justify-between"
+                                            >
+                                                <span className={formData.category ? "text-gray-900" : "text-gray-400"}>
+                                                    {formData.category || "Choisir..."}
+                                                </span>
+                                                <ChevronDown className="w-4 h-4 text-gray-400" />
+                                            </button>
+
+                                            {isCategoryDropdownOpen && (
+                                                <>
+                                                    <div
+                                                        className="fixed inset-0 z-40"
+                                                        onClick={() => setIsCategoryDropdownOpen(false)}
+                                                    />
+                                                    <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl shadow-xl border border-gray-100 z-50 flex flex-col max-h-[250px] overflow-hidden animate-in slide-in-from-top-2">
+                                                        <div className="p-2 border-b border-gray-50 flex-shrink-0 relative">
+                                                            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                                                            <input
+                                                                type="text"
+                                                                autoFocus
+                                                                value={categorySearchQuery}
+                                                                onChange={(e) => setCategorySearchQuery(e.target.value)}
+                                                                placeholder="Rechercher une catégorie..."
+                                                                className="w-full bg-gray-50 border-none rounded-lg py-2 pl-9 pr-3 text-[11px] font-black text-gray-900 focus:ring-0 outline-none"
+                                                            />
+                                                        </div>
+                                                        <div className="overflow-y-auto w-full p-2 flex-1 scrollbar-hide">
+                                                            {dbCategories.filter(cat => cat.name.toLowerCase().includes(categorySearchQuery.toLowerCase())).length > 0 ? (
+                                                                dbCategories
+                                                                    .filter(cat => cat.name.toLowerCase().includes(categorySearchQuery.toLowerCase()))
+                                                                    .map(cat => (
+                                                                        <button
+                                                                            type="button"
+                                                                            key={cat.id}
+                                                                            onClick={() => {
+                                                                                setFormData({ ...formData, category: cat.name });
+                                                                                setIsCategoryDropdownOpen(false);
+                                                                                setCategorySearchQuery('');
+                                                                            }}
+                                                                            className={clsx(
+                                                                                "w-full text-left px-3 py-2 rounded-lg text-xs font-bold transition-colors uppercase tracking-widest",
+                                                                                formData.category === cat.name ? "bg-brand-50 text-brand-600" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                                                                            )}
+                                                                        >
+                                                                            {cat.name}
+                                                                        </button>
+                                                                    ))
+                                                            ) : (
+                                                                <p className="text-center text-[10px] text-gray-400 py-3 font-bold uppercase tracking-widest">
+                                                                    Aucune catégorie trouvée
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1192,6 +1429,96 @@ export default function Sites() {
                     </div>
                 );
             })()}
+
+            {/* Modal d'Importation TXT */}
+            {showImportModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+                    <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl border border-white/20 overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                            <div>
+                                <h2 className="text-xl font-black text-gray-900 tracking-tight">📋 Importer des produits</h2>
+                                <p className="text-[10px] font-bold text-brand-600 uppercase tracking-widest mt-0.5">Depuis un fichier texte (.txt)</p>
+                            </div>
+                            <button onClick={() => setShowImportModal(false)} className="p-2 hover:bg-gray-200 rounded-xl text-gray-400 transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        <div className="p-8 space-y-6">
+                            {/* Exemple de format */}
+                            <div className="bg-gray-900 rounded-2xl p-5 text-left space-y-1">
+                                <p className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-3">Format du fichier (Nom - Quantité - Seuil)</p>
+                                <p className="text-green-400 font-mono text-xs"># Boissons</p>
+                                <p className="text-gray-300 font-mono text-xs pl-2">Coca Cola 33cl <span className="text-gray-500">- 50 - 10</span></p>
+                                <p className="text-gray-300 font-mono text-xs pl-2">Fanta 33cl <span className="text-gray-500">- 30</span></p>
+                                <p className="text-gray-300 font-mono text-xs pl-2">Sprite</p>
+                                <p className="text-gray-600 font-mono text-xs mt-1"> </p>
+                                <p className="text-green-400 font-mono text-xs"># Viandes</p>
+                                <p className="text-gray-300 font-mono text-xs pl-2">Poulet Fermier <span className="text-gray-500">- 20 - 5</span></p>
+                            </div>
+                            <div className="text-[10px] text-gray-500 text-center space-y-1 bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                                <p>✏️ <strong className="text-brand-600"># Catégorie</strong> puis les produits en dessous.</p>
+                                <p>Séparer la quantité et le seuil d'alerte avec un tiret <strong className="text-gray-900">(-)</strong></p>
+                                <p className="italic text-[9px] mt-1">(La quantité et le seuil sont optionnels)</p>
+                            </div>
+
+                            {/* Sélecteur de Site */}
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] block text-center">Destination</label>
+                                <div className="grid grid-cols-3 gap-2 p-1.5 bg-gray-100 rounded-2xl">
+                                    {[
+                                        { id: 'abidjan', label: 'Abidjan' },
+                                        { id: 'bassam', label: 'Bassam' },
+                                        { id: 'both', label: 'Les Deux' }
+                                    ].map((site) => (
+                                        <button
+                                            key={site.id}
+                                            onClick={() => setImportTargetSite(site.id as any)}
+                                            className={clsx(
+                                                "py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                                                importTargetSite === site.id
+                                                    ? "bg-white text-brand-600 shadow-sm border border-brand-100"
+                                                    : "text-gray-400 hover:text-gray-600"
+                                            )}
+                                        >
+                                            {site.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[9px] text-gray-400 text-center font-medium italic">
+                                    {importTargetSite === 'both'
+                                        ? "Les produits seront ajoutés sur Abidjan et Bassam."
+                                        : `Les produits seront ajoutés sur ${importTargetSite} uniquement.`}
+                                </p>
+                            </div>
+
+                            {/* Zone de téléchargement */}
+                            <div className="relative group">
+                                <input
+                                    type="file"
+                                    accept=".txt,.text"
+                                    onChange={handleFileUpload}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                />
+                                <div className="border-4 border-dashed border-gray-100 group-hover:border-brand-200 group-hover:bg-brand-50/30 rounded-[2rem] p-8 flex flex-col items-center justify-center transition-all">
+                                    <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center text-brand-600 mb-3 group-hover:scale-110 group-hover:rotate-3 transition-transform">
+                                        <FileUp className="w-7 h-7" />
+                                    </div>
+                                    <p className="text-xs font-black text-gray-900 uppercase tracking-widest">Choisir le fichier .txt</p>
+                                    <p className="text-[10px] text-gray-400 mt-2 font-bold">📱 Compatible avec les Notes du téléphone</p>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={() => setShowImportModal(false)}
+                                className="w-full py-3 text-[11px] font-black text-gray-400 uppercase tracking-widest hover:text-gray-600 transition-colors"
+                            >
+                                Annuler
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
