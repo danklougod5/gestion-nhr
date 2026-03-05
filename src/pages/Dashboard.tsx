@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, TrendingUp, AlertTriangle, CheckCircle, Clock, ChevronRight, ArrowDownRight, ArrowUpRight, BarChart3, Star, Layers, Zap, RefreshCw } from 'lucide-react';
+import { Package, TrendingUp, AlertTriangle, CheckCircle, ChevronRight, ArrowDownRight, BarChart3, Star, Layers, Zap, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -296,7 +296,7 @@ export default function Dashboard() {
                     <div className="space-y-5">
                         {mostUsedProducts.length === 0 ? (
                             <p className="text-center py-10 text-xs font-bold text-gray-300 uppercase tracking-widest italic">Aucune donnée</p>
-                        ) : mostUsedProducts.map((prod, i) => (
+                        ) : mostUsedProducts.map((prod) => (
                             <div key={prod.id} className="flex items-center gap-4 group cursor-default">
                                 <div className="w-8 h-8 rounded-full border-2 border-orange-50 flex items-center justify-center text-[10px] font-black text-orange-400 group-hover:bg-orange-50 transition-all">{prod.count}x</div>
                                 <div className="flex-1 min-w-0">
