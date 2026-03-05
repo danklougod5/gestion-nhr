@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus } from 'lucide-react';
+import { Plus, Clock, X, Filter, Search, RefreshCw, ShoppingCart, ArrowDownLeft, MapPin, Send, Package, Minus, ListChecks, Trash2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase';
 import type { Product, Site } from '../types';
@@ -19,6 +19,55 @@ export default function Purchases() {
     // UI States
     const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
     const [showFilters, setShowFilters] = useState(false);
+
+    // Multi-select for History
+    const [selectedMovementIds, setSelectedMovementIds] = useState<string[]>([]);
+    const [isHistorySelectMode, setIsHistorySelectMode] = useState(false);
+
+    const handleBulkDeleteHistory = async () => {
+        if (selectedMovementIds.length === 0) return;
+        const count = selectedMovementIds.length;
+        const reason = window.prompt(`Supprimer ${count} entrées d'historique ?\n\nSAISISSEZ LE MOTIF :`);
+        if (reason === null) return;
+        if (!reason.trim()) {
+            toast.error("Motif obligatoire");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const { error } = await supabase
+                .from('stock_movements')
+                .delete()
+                .in('id', selectedMovementIds);
+
+            if (error) throw error;
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'DELETE',
+                    entity_type: 'STOCK_MOVEMENT',
+                    entity_id: 'BULK_HISTORY',
+                    reason: `Suppression groupée d'historique (${count} entrées). Motif : ${reason}`,
+                    details: {
+                        count,
+                        ids: selectedMovementIds,
+                        motive: reason
+                    }
+                }, profile);
+            }
+
+            toast.success(`${count} entrées supprimées !`);
+            setSelectedMovementIds([]);
+            setIsHistorySelectMode(false);
+            fetchHistory();
+        } catch (error: any) {
+            toast.error("Erreur lors de la suppression groupée");
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     // Filter States
     const [filters, setFilters] = useState({
@@ -54,11 +103,15 @@ export default function Purchases() {
             const { data, error } = await supabase
                 .from('products')
                 .select('*')
-                .eq('site', selectedSite)
+                .or(`site.eq.${selectedSite},site.eq.both`)
                 .neq('category', 'ARCHIVED')
                 .order('name', { ascending: true });
             if (error) throw error;
-            setProducts(data || []);
+            if (data) {
+                // Double protection: Filtrer aussi côté client pour exclure l'archive
+                const activeProducts = data.filter(p => p.category !== 'ARCHIVED' && !p.name.startsWith('ARCHIVED -'));
+                setProducts(activeProducts);
+            }
         } catch (error: any) {
             console.error('Error fetching products:', error);
             toast.error("Erreur lors du chargement des produits");
@@ -153,6 +206,7 @@ export default function Purchases() {
         try {
             const reference = `PUR-${Math.random().toString(36).substring(2, 9).toUpperCase()}`;
 
+            const productNames: string[] = [];
             for (const item of items) {
                 const { data: product, error: pError } = await supabase
                     .from('products')
@@ -161,6 +215,8 @@ export default function Purchases() {
                     .single();
 
                 if (pError) throw pError;
+
+                productNames.push(product.name);
 
                 const stockField = item.site === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
                 const currentStock = product[stockField] || 0;
@@ -191,7 +247,12 @@ export default function Purchases() {
                 entity_type: 'STOCK_MOVEMENT',
                 entity_id: reference,
                 site: items[0]?.site || selectedSite,
-                details: { items_count: items.length, reference }
+                reason: `Achat / Réception de ${items.length} produit(s)`,
+                details: {
+                    items_count: items.length,
+                    reference,
+                    products_list: productNames.join(', ')
+                }
             }, profile);
 
             toast.success("Achats enregistrés avec succès !");
@@ -294,6 +355,24 @@ export default function Purchases() {
                                         className="w-full bg-gray-50 border-transparent focus:bg-white focus:border-brand-200 rounded-xl py-2 pl-9 pr-4 text-[11px] font-black outline-none transition-all"
                                     />
                                 </div>
+                                <button
+                                    onClick={() => {
+                                        setIsHistorySelectMode(!isHistorySelectMode);
+                                        if (isHistorySelectMode) setSelectedMovementIds([]);
+                                    }}
+                                    className={clsx(
+                                        "p-2 rounded-xl border transition-all relative",
+                                        isHistorySelectMode ? "bg-gray-900 border-gray-900 text-white shadow-xl" : "bg-white border-gray-200 text-gray-400 hover:text-brand-600"
+                                    )}
+                                    title="Mode sélection"
+                                >
+                                    <ListChecks className="w-4 h-4" />
+                                    {selectedMovementIds.length > 0 && (
+                                        <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-brand-600 text-[8px] font-black text-white rounded-full flex items-center justify-center border-2 border-white animate-in zoom-in">
+                                            {selectedMovementIds.length}
+                                        </span>
+                                    )}
+                                </button>
                                 <button
                                     onClick={() => setShowFilters(!showFilters)}
                                     className={clsx(
@@ -546,12 +625,41 @@ export default function Purchases() {
                             history.map((m) => (
                                 <div
                                     key={m.id}
-                                    onClick={() => setSelectedMovement(m)}
-                                    className="bg-white rounded-[2.5rem] p-6 border border-gray-100 shadow-sm hover:shadow-xl hover:shadow-brand-500/5 transition-all duration-500 flex flex-col group cursor-pointer relative overflow-hidden"
+                                    onClick={() => {
+                                        if (isHistorySelectMode) {
+                                            setSelectedMovementIds(prev =>
+                                                prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id]
+                                            );
+                                        } else {
+                                            setSelectedMovement(m);
+                                        }
+                                    }}
+                                    className={clsx(
+                                        "bg-white rounded-[2.5rem] p-6 border transition-all duration-500 flex flex-col group cursor-pointer relative overflow-hidden",
+                                        isHistorySelectMode && selectedMovementIds.includes(m.id)
+                                            ? "border-brand-500 ring-4 ring-brand-500/10 shadow-xl bg-brand-50/10"
+                                            : "border-gray-100 hover:shadow-xl hover:shadow-brand-500/5 shadow-sm"
+                                    )}
                                 >
-                                    <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <ArrowDownLeft className="w-4 h-4 text-brand-600" />
-                                    </div>
+                                    {/* Selection Checkbox Overlay */}
+                                    {isHistorySelectMode && (
+                                        <div className="absolute top-4 right-4 z-10">
+                                            <div className={clsx(
+                                                "w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all",
+                                                selectedMovementIds.includes(m.id)
+                                                    ? "bg-brand-600 border-brand-600 text-white"
+                                                    : "bg-white border-gray-200"
+                                            )}>
+                                                {selectedMovementIds.includes(m.id) && <Check className="w-4 h-4" />}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {!isHistorySelectMode && (
+                                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <ArrowDownLeft className="w-4 h-4 text-brand-600" />
+                                        </div>
+                                    )}
 
                                     <div className="flex items-start gap-4 mb-6">
                                         <div className="w-14 h-14 bg-gray-50 rounded-2xl flex-shrink-0 flex items-center justify-center text-xl shadow-inner border border-gray-100 group-hover:bg-brand-50 group-hover:border-brand-100 transition-colors">
@@ -598,6 +706,37 @@ export default function Purchases() {
                     </div>
                 )}
             </div>
+
+            {/* Bulk Actions Floating Bar */}
+            {selectedMovementIds.length > 0 && (
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-20 duration-500">
+                    <div className="bg-gray-900/95 backdrop-blur-xl rounded-[2.5rem] p-2 flex items-center gap-6 shadow-2xl border border-white/10 ring-8 ring-gray-900/10">
+                        <div className="px-6 border-r border-white/10 text-center sm:text-left">
+                            <p className="text-[9px] font-black text-brand-400 uppercase tracking-[0.25em] mb-1">Sélection Historique</p>
+                            <p className="text-sm font-black text-white flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-brand-500" />
+                                {selectedMovementIds.length} {selectedMovementIds.length > 1 ? 'entrées' : 'entrée'}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 pr-2">
+                            <button
+                                onClick={handleBulkDeleteHistory}
+                                className="group flex items-center gap-3 px-8 py-4 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-[2rem] font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-xl hover:shadow-red-500/40 border border-red-500/20"
+                            >
+                                <Trash2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                                <span>Suppression groupée</span>
+                            </button>
+                            <button
+                                onClick={() => { setSelectedMovementIds([]); setIsHistorySelectMode(false); }}
+                                className="p-4 text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
+                                title="Fermer la sélection"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Details Modal — Re-styled to match Sites Detail Modal */}
             {selectedMovement && (

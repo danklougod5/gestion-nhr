@@ -138,12 +138,19 @@ export function AuditLogView() {
 
         switch (entity) {
             case 'PRODUCT':
-                if (action === 'CREATE') return `Création du produit "${d.name || 'Inconnu'}"`;
-                if (action === 'UPDATE') return `Mise à jour du produit "${d.name || 'Inconnu'}"`;
+                const qtySuffix = d.quantity_added !== undefined ? ` [${d.quantity_added > 0 ? '+' : ''}${d.quantity_added} unités]` : '';
+                if (action === 'CREATE') return `Création du produit "${d.name || 'Inconnu'}"${qtySuffix}`;
+                if (action === 'UPDATE') return `Mise à jour du produit "${d.name || 'Inconnu'}"${qtySuffix}`;
                 if (action === 'DELETE') return `Suppression du produit "${d.name || 'Inconnu'}"`;
                 break;
             case 'STOCK_MOVEMENT':
                 if (action === 'CREATE' || action === 'UPDATE') {
+                    if (d.items_count) {
+                        if (d.items_count === 1 && d.products_list) {
+                            return `Réception de ${d.products_list} (Réf: ${d.reference || 'N/A'})`;
+                        }
+                        return `${d.items_count} produit(s) réceptionné(s) - Réf: ${d.reference || 'N/A'}`;
+                    }
                     const type = d.type || (log.action_type === 'UPDATE' ? 'MODIF' : '');
                     if (type === 'IN') return `Entrée en stock de ${d.quantity} ${d.product_name || 'unités'}`;
                     if (type === 'OUT') return `Sortie de stock de ${d.quantity} ${d.product_name || 'unités'}`;
@@ -151,11 +158,17 @@ export function AuditLogView() {
                 }
                 break;
             case 'NEEDS_REQUEST':
-                if (action === 'CREATE') return `Génération d'un bon de sortie (${d.items_count || 0} articles)`;
+                if (action === 'CREATE') {
+                    if (d.items_count === 1 && d.products_list) {
+                        return `Bon de sortie : ${d.products_list}`;
+                    }
+                    return `Génération d'un bon de sortie (${d.items_count || 0} articles)`;
+                }
                 if (action === 'DELETE') return `Annulation d'un bon de sortie (#${log.entity_id.slice(0, 8)})`;
                 break;
             case 'CATEGORY':
                 if (action === 'CREATE') return `Nouvelle catégorie : ${d.name}`;
+                if (action === 'UPDATE') return `Renommage catégorie : ${d.old_name} ➔ ${d.new_name}`;
                 if (action === 'DELETE') return `Suppression de la catégorie ${d.name}`;
                 break;
             case 'USER':
@@ -186,6 +199,30 @@ export function AuditLogView() {
                     </p>
                 </div>
 
+                {/* Specific Quantity Info for Products */}
+                {d.quantity_added !== undefined && (
+                    <div className="bg-brand-50/50 p-6 rounded-[2.5rem] border border-brand-100 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-brand-600 shadow-sm">
+                                <Plus className={clsx("w-6 h-6", d.quantity_added < 0 && "rotate-45 text-red-500")} />
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Impact sur le stock</p>
+                                <p className="text-sm font-black text-gray-900 uppercase">Ajustement de la quantité</p>
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <p className={clsx(
+                                "text-4xl font-black tabular-nums tracking-tighter",
+                                d.quantity_added >= 0 ? "text-brand-600" : "text-red-600"
+                            )}>
+                                {d.quantity_added > 0 ? '+' : ''}{d.quantity_added}
+                            </p>
+                            <p className="text-[9px] font-black text-gray-300 uppercase tracking-widest">Unités</p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* Object Info */}
                     <div className="bg-white p-5 rounded-[2rem] border border-gray-100 shadow-sm">
@@ -196,8 +233,14 @@ export function AuditLogView() {
                         <div className="space-y-3">
                             <div className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase">Élément</span>
-                                <span className="text-[11px] font-black text-gray-900 uppercase">{d.name || d.username || log.entity_type}</span>
+                                <span className="text-[11px] font-black text-gray-900 uppercase">{d.name || d.username || d.products_list || log.entity_type}</span>
                             </div>
+                            {d.products_list && d.items_count > 1 && (
+                                <div className="mt-2 p-2.5 bg-gray-50/80 rounded-xl border border-gray-100">
+                                    <p className="text-[9px] font-bold text-gray-400 uppercase mb-1">Liste des produits</p>
+                                    <p className="text-[10px] font-black text-gray-700 leading-relaxed italic">{d.products_list}</p>
+                                </div>
+                            )}
                             <div className="flex justify-between items-center bg-gray-50/50 p-2.5 rounded-xl">
                                 <span className="text-[10px] font-bold text-gray-400 uppercase">Identifiant</span>
                                 <span className="text-[10px] font-mono text-brand-600 font-bold">#{log.entity_id.slice(0, 12)}...</span>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Package, TrendingUp, AlertTriangle, CheckCircle, Clock, ChevronRight } from 'lucide-react';
+import { Package, TrendingUp, AlertTriangle, CheckCircle, Clock, ChevronRight, ArrowDownRight, ArrowUpRight, BarChart3, Star, Layers, Zap, RefreshCw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
@@ -10,12 +10,13 @@ export default function Dashboard() {
     const { profile } = useAuth();
     const navigate = useNavigate();
     const [selectedSite, setSelectedSite] = useState<Site>('abidjan');
-    const [recentActivity, setRecentActivity] = useState<any[]>([]);
+    const [topMovingProducts, setTopMovingProducts] = useState<any[]>([]);
+    const [mostUsedProducts, setMostUsedProducts] = useState<any[]>([]);
     const [stats, setStats] = useState([
-        { name: 'Total Produits', value: '0', path: '/sites', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: '+12% ce mois' },
-        { name: 'Bons en attente', value: '0', path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Action requise' },
-        { name: 'Alertes Stock', value: '0', path: '/sites', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: 'Urgences' },
-        { name: 'Livraisons du jour', value: '0', path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Terminé' },
+        { name: 'Total Produits', value: '0', path: '/sites', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: 'Catalogue Actif' },
+        { name: 'Bons en attente', value: '0', path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Flux de sortie' },
+        { name: 'Alertes Stock', value: '0', path: '/sites', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: 'Stock optimal' },
+        { name: 'Livraisons du jour', value: '0', path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Entrées stock' },
     ]);
     const [loading, setLoading] = useState(true);
 
@@ -32,16 +33,54 @@ export default function Dashboard() {
     const fetchStats = async () => {
         try {
             setLoading(true);
-            const { data: products, error } = await supabase
+
+            // 0. Time boundaries
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const thirtyDaysAgo = new Date();
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+            // 1. Fetch Products
+            let prodQuery = supabase
                 .from('products')
                 .select('*')
-                .eq('site', selectedSite)
                 .neq('category', 'ARCHIVED');
 
-            if (error) throw error;
+            if (selectedSite !== 'both') {
+                prodQuery = prodQuery.or(`site.eq.${selectedSite},site.eq.both`);
+            }
+
+            const { data: products, error: prodError } = await prodQuery;
+            if (prodError) throw prodError;
+
+            // 2. Fetch Movements for Top Products (Last 30 days)
+            // Fix: Use created_at instead of date
+            const { data: movements, error: moveError } = await supabase
+                .from('stock_movements')
+                .select('product_id, quantity, type, created_at')
+                .eq('site', selectedSite)
+                .gte('created_at', thirtyDaysAgo.toISOString());
+
+            if (moveError) throw moveError;
+
+            // 3. Fetch Counters for today
+            // Bons du jour
+            const { count: pendingCount } = await supabase
+                .from('needs_requests')
+                .select('*', { count: 'exact', head: true })
+                .eq('site', selectedSite)
+                .gte('created_at', today.toISOString());
+
+            // Livraisons du jour (IN)
+            const { count: deliveryCount } = await supabase
+                .from('stock_movements')
+                .select('*', { count: 'exact', head: true })
+                .eq('type', 'IN')
+                .eq('site', selectedSite)
+                .gte('created_at', today.toISOString());
 
             if (products) {
-                // Filtrer aussi par nom au cas où l'archivage est partiel
                 const activeProducts = products.filter(p => !p.name.startsWith('ARCHIVED -'));
                 const total = activeProducts.length;
                 let alerts = 0;
@@ -50,26 +89,65 @@ export default function Dashboard() {
                     const stock = selectedSite === 'bassam' ? p.stock_bassam :
                         selectedSite === 'abidjan' ? p.stock_abidjan :
                             (p.stock_abidjan + p.stock_bassam);
+
                     if (stock <= p.min_threshold) {
                         alerts++;
                     }
                 });
 
-                const { data: logs } = await supabase
-                    .from('audit_logs')
-                    .select('*')
-                    .limit(5)
-                    .order('created_at', { ascending: false });
+                // Calculate Top Moving Products (OUT movements)
+                const movementStats = movements || [];
+                const productAggregates: Record<string, { totalOut: number, count: number }> = {};
 
-                if (logs) {
-                    setRecentActivity(logs);
-                }
+                movementStats.forEach(m => {
+                    if (m.type === 'OUT') {
+                        if (!productAggregates[m.product_id]) {
+                            productAggregates[m.product_id] = { totalOut: 0, count: 0 };
+                        }
+                        productAggregates[m.product_id].totalOut += Math.abs(m.quantity);
+                        productAggregates[m.product_id].count += 1;
+                    }
+                });
 
+                const topMoving = Object.entries(productAggregates)
+                    .map(([id, stats]) => {
+                        const product = activeProducts.find(p => p.id === id);
+                        return {
+                            id,
+                            name: product?.name || 'Produit inconnu',
+                            category: product?.category || 'N/A',
+                            totalValue: stats.totalOut,
+                            count: stats.count
+                        };
+                    })
+                    .filter(p => p.name !== 'Produit inconnu')
+                    .sort((a, b) => b.totalValue - a.totalValue)
+                    .slice(0, 5);
+
+                const topUsed = [...Object.entries(productAggregates)]
+                    .map(([id, stats]) => {
+                        const product = activeProducts.find(p => p.id === id);
+                        return {
+                            id,
+                            name: product?.name || 'Produit inconnu',
+                            category: product?.category || 'N/A',
+                            totalValue: stats.totalOut,
+                            count: stats.count
+                        };
+                    })
+                    .filter(p => p.name !== 'Produit inconnu')
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 5);
+
+                setTopMovingProducts(topMoving);
+                setMostUsedProducts(topUsed);
+
+                // Update Stats with Real Data
                 setStats([
                     { name: 'Total Produits', value: total.toString(), path: '/sites', icon: Package, color: 'text-brand-600', bg: 'bg-brand-50', trend: 'Catalogue Actif' },
-                    { name: 'Bons en attente', value: '0', path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Flux de sortie' },
+                    { name: 'Bons du Jour', value: (pendingCount || 0).toString(), path: '/needs', icon: TrendingUp, color: 'text-orange-600', bg: 'bg-orange-50', trend: 'Flux de sortie' },
                     { name: 'Alertes Stock', value: alerts.toString(), path: '/sites', icon: AlertTriangle, color: 'text-red-600', bg: 'bg-red-50', trend: alerts > 0 ? `${alerts} à réapprov.` : 'Stock optimal' },
-                    { name: 'Livraisons du jour', value: '0', path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Entrées stock' },
+                    { name: 'Livraisons Jour', value: (deliveryCount || 0).toString(), path: '/purchases', icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50', trend: 'Entrées stock' },
                 ]);
             }
         } catch (error) {
@@ -78,6 +156,7 @@ export default function Dashboard() {
             setLoading(false);
         }
     };
+
 
     return (
         <div className="space-y-6 sm:space-y-10 animate-in fade-in duration-700">
@@ -88,10 +167,19 @@ export default function Dashboard() {
                         Bonjour, <span className="brand-text-gradient">{profile?.full_name?.split(' ')[0]}</span>
                         <span className="text-xl sm:text-2xl animate-bounce">👋</span>
                     </h1>
-                    <p className="text-gray-400 font-medium text-base sm:text-lg mt-1 sm:mt-2">Voici l'état actuel du stock à <span className="text-gray-600 font-bold uppercase">{selectedSite}</span></p>
+                    <p className="text-gray-400 font-medium text-base sm:text-lg mt-1 sm:mt-2">Suivi analytique du stock pour <span className="text-gray-600 font-bold uppercase">{selectedSite}</span></p>
                 </div>
 
                 <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+                    <button
+                        onClick={fetchStats}
+                        disabled={loading}
+                        className="p-2 sm:p-2.5 bg-white/50 backdrop-blur-md rounded-xl sm:rounded-[1.25rem] border border-gray-100 text-gray-400 hover:text-brand-600 hover:bg-white transition-all shadow-sm group"
+                        title="Rafraîchir les données"
+                    >
+                        <RefreshCw className={clsx("w-4 h-4 sm:w-5 h-5", loading && "animate-spin")} />
+                    </button>
+
                     {profile?.role === 'admin' && (
                         <div className="flex bg-white/50 backdrop-blur-md p-1 sm:p-1.5 rounded-[1.25rem] sm:rounded-[1.5rem] shadow-sm border border-gray-100 w-full sm:w-auto">
                             {['abidjan', 'bassam'].map((site) => (
@@ -121,7 +209,6 @@ export default function Dashboard() {
                 </div>
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-8">
-                    {/* Bento Grid Stats */}
                     {stats.map((item, idx) => (
                         <div
                             key={item.name}
@@ -161,68 +248,97 @@ export default function Dashboard() {
                 </div>
             )}
 
-            {/* Bottom Section: Activity & Quick Actions */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8 items-start">
-                <div className="lg:col-span-2 premium-card !p-6 sm:!p-8">
-                    <div className="flex items-center justify-between mb-6 sm:mb-8">
-                        <h3 className="text-lg sm:text-xl font-black text-gray-900 flex items-center gap-2 sm:gap-3">
-                            <Clock className="w-5 h-5 sm:w-6 sm:h-6 text-brand-600" />
-                            Activité Récente
-                        </h3>
-                        <button onClick={() => navigate('/settings')} className="text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-brand-600 hover:text-brand-700 transition-colors">Voir tout</button>
+            {/* Top Analysis Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 sm:gap-8">
+                {/* Top Sorties (Quantité) */}
+                <div className="premium-card !p-6 sm:!p-8">
+                    <div className="flex items-center gap-3 mb-8">
+                        <div className="p-2.5 bg-brand-50 rounded-xl">
+                            <ArrowDownRight className="w-5 h-5 text-brand-600" />
+                        </div>
+                        <div>
+                            <h3 className="text-base font-black text-gray-900 uppercase">Top Sorties</h3>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Par volume consommé (30j)</p>
+                        </div>
                     </div>
-                    <div className="space-y-4 sm:space-y-6">
-                        {recentActivity.length === 0 ? (
-                            <div className="text-center py-12">
-                                <p className="text-sm font-medium text-gray-400 italic">Mise à jour activée, en attente d'événements...</p>
-                            </div>
-                        ) : recentActivity.map((log: any) => (
-                            <div
-                                key={log.id}
-                                onClick={() => navigate('/settings')}
-                                className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-xl sm:rounded-2xl hover:bg-gray-50 transition-colors cursor-pointer border border-transparent hover:border-gray-100 group"
-                            >
-                                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-100 group-hover:bg-brand-50 rounded-lg sm:rounded-xl flex items-center justify-center text-gray-400 group-hover:text-brand-500 transition-colors">
-                                    <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" />
+
+                    <div className="space-y-5">
+                        {topMovingProducts.length === 0 ? (
+                            <p className="text-center py-10 text-xs font-bold text-gray-300 uppercase tracking-widest italic">Aucune donnée</p>
+                        ) : topMovingProducts.map((prod, i) => (
+                            <div key={prod.id} className="flex items-center gap-4 group cursor-default">
+                                <div className="text-xl font-black text-gray-200 group-hover:text-brand-200 transition-colors w-6">0{i + 1}</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-black text-gray-900 truncate uppercase mt-0.5">{prod.name}</div>
+                                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-tight">{prod.category}</div>
                                 </div>
-                                <div className="flex-1">
-                                    <div className="text-[11px] sm:text-xs font-black text-gray-900 uppercase">
-                                        {log.action_type === 'CREATE' ? 'Nouveau' : log.action_type === 'UPDATE' ? 'Modification' : log.action_type === 'DELETE' ? 'Suppression' : log.action_type} - {log.entity_type === 'NEEDS_REQUEST' ? 'Bon de sortie' : log.entity_type === 'STOCK_MOVEMENT' ? 'Mouvement Stock' : log.entity_type === 'PRODUCT' ? 'Produit' : log.entity_type}
-                                    </div>
-                                    <div className="text-[9px] sm:text-[10px] text-gray-400 mt-1 font-bold">
-                                        par <span className="uppercase text-brand-600">{log.user_name}</span> - {log.details?.name || 'Action effectuée'}
-                                    </div>
-                                </div>
-                                <div className="text-right flex flex-col items-end justify-center gap-1">
-                                    <div className="text-[9px] sm:text-[10px] font-black text-gray-400 uppercase">
-                                        {new Date(log.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                    <ChevronRight className="w-4 h-4 text-gray-300 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+                                <div className="text-right">
+                                    <div className="text-sm font-black text-brand-600 tabular-nums">-{prod.totalValue}</div>
+                                    <div className="text-[8px] font-black text-gray-300 uppercase">Unités</div>
                                 </div>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                <div className="premium-card bg-brand-600 border-none relative overflow-hidden group !p-8 sm:!p-10 min-h-[250px] sm:min-h-auto flex flex-col justify-between">
-                    <div className="absolute top-0 right-0 w-48 h-48 sm:w-64 sm:h-64 bg-white/10 rounded-full -mr-24 -mt-24 sm:-mr-32 sm:-mt-32 blur-2xl sm:blur-3xl group-hover:scale-110 transition-transform duration-700" />
-                    <div className="relative z-10 flex flex-col h-full justify-between text-white">
-                        <div>
-                            <div className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 backdrop-blur-md rounded-xl sm:rounded-2xl flex items-center justify-center mb-4 sm:mb-6">
-                                <Package className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
-                            </div>
-                            <h3 className="text-xl sm:text-2xl font-black mb-2 tracking-tight">Nouvelle Commande</h3>
-                            <p className="text-brand-100 text-xs sm:text-sm font-medium leading-relaxed">
-                                Enregistrez une nouvelle entrée de stock ou créez un bon de sortie rapidement.
-                            </p>
+                {/* Produits Fréquents */}
+                <div className="premium-card !p-6 sm:!p-8">
+                    <div className="flex items-center gap-3 mb-8">
+                        <div className="p-2.5 bg-orange-50 rounded-xl">
+                            <Zap className="w-5 h-5 text-orange-600" />
                         </div>
-                        <button
-                            onClick={() => window.location.href = '/needs'}
-                            className="w-full py-3 sm:py-4 mt-6 bg-white text-brand-600 font-black rounded-xl sm:rounded-2xl hover:bg-brand-50 transition-all shadow-xl shadow-brand-900/20 active:scale-95 uppercase text-[10px] sm:text-xs tracking-widest"
-                        >
-                            Commencer
-                        </button>
+                        <div>
+                            <h3 className="text-base font-black text-gray-900 uppercase">Plus Fréquents</h3>
+                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Fréquence d'utilisation (30j)</p>
+                        </div>
                     </div>
+
+                    <div className="space-y-5">
+                        {mostUsedProducts.length === 0 ? (
+                            <p className="text-center py-10 text-xs font-bold text-gray-300 uppercase tracking-widest italic">Aucune donnée</p>
+                        ) : mostUsedProducts.map((prod, i) => (
+                            <div key={prod.id} className="flex items-center gap-4 group cursor-default">
+                                <div className="w-8 h-8 rounded-full border-2 border-orange-50 flex items-center justify-center text-[10px] font-black text-orange-400 group-hover:bg-orange-50 transition-all">{prod.count}x</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-black text-gray-900 truncate uppercase mt-0.5">{prod.name}</div>
+                                    <div className="text-[9px] font-bold text-gray-400 uppercase tracking-tight">{prod.category}</div>
+                                </div>
+                                <div className="p-2 bg-gray-50 rounded-lg opacity-0 group-hover:opacity-100 transition-all">
+                                    <ChevronRight className="w-3 h-3 text-gray-400" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Suggestions pour Dashboard Complet */}
+                <div className="premium-card bg-gray-900 border-none !p-6 sm:!p-8 flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="p-2.5 bg-white/10 rounded-xl">
+                                <BarChart3 className="w-5 h-5 text-brand-400" />
+                            </div>
+                            <h3 className="text-base font-black text-white uppercase tracking-tight">Suggestions NHR</h3>
+                        </div>
+                        <div className="space-y-4">
+                            {[
+                                { title: "Valorisation Stock", desc: "Suivi de la valeur financière totale", icon: Layers },
+                                { title: "Top Fournisseurs", desc: "Analyse des livraisons par acteur", icon: Star },
+                                { title: "Taux de Rupture", desc: "Produits en manque vs demande", icon: AlertTriangle }
+                            ].map((s, idx) => (
+                                <div key={idx} className="flex gap-4 p-3 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-all cursor-help">
+                                    <s.icon className="w-4 h-4 text-brand-400 shrink-0" />
+                                    <div>
+                                        <div className="text-[11px] font-black text-white uppercase">{s.title}</div>
+                                        <div className="text-[9px] font-medium text-gray-400 leading-tight mt-0.5">{s.desc}</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                    <button onClick={() => navigate('/sites')} className="w-full py-4 mt-6 bg-brand-600 text-white font-black rounded-xl hover:bg-brand-500 transition-all uppercase text-[10px] tracking-widest">
+                        Optimiser le stock
+                    </button>
                 </div>
             </div>
         </div>

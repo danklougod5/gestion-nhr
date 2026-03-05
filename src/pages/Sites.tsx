@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronDown, Beef, Coffee, Carrot, LayoutGrid, FileUp } from 'lucide-react';
+import { Search, MapPin, Package, AlertCircle, Layers, Plus, X, Save, Trash2, Edit2, Clock, ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronDown, Beef, Coffee, Carrot, LayoutGrid, FileUp, Check } from 'lucide-react';
 import type { Product, Site } from '../types';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
@@ -58,6 +58,58 @@ export default function Sites() {
     const [historyDateStart, setHistoryDateStart] = useState('');
     const [historyDateEnd, setHistoryDateEnd] = useState('');
     const [showAdvancedHistory, setShowAdvancedHistory] = useState(false);
+
+    // Multiple selection states
+    const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+    const [isSelectMode, setIsSelectMode] = useState(false);
+    const [isBulkCategoryModalOpen, setIsBulkCategoryModalOpen] = useState(false);
+
+    const handleBulkUpdateCategory = async (newCategory: string) => {
+        if (selectedProductIds.length === 0) return;
+        const count = selectedProductIds.length;
+        const reason = window.prompt(`Déplacer ${count} produits vers "${newCategory}" ?\n\nSAISISSEZ LE MOTIF :`);
+        if (reason === null) return;
+        if (!reason.trim()) {
+            toast.error("Motif obligatoire");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const { error } = await supabase
+                .from('products')
+                .update({ category: newCategory })
+                .in('id', selectedProductIds);
+
+            if (error) throw error;
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'UPDATE',
+                    entity_type: 'PRODUCT',
+                    entity_id: 'BULK',
+                    reason: `Changement de catégorie groupé : ${count} produits vers "${newCategory}". Motif : ${reason}`,
+                    details: {
+                        count,
+                        product_ids: selectedProductIds,
+                        new_category: newCategory,
+                        motive: reason
+                    }
+                }, profile);
+            }
+
+            toast.success(`${count} produits déplacés vers ${newCategory} !`);
+            setSelectedProductIds([]);
+            setIsSelectMode(false);
+            setIsBulkCategoryModalOpen(false);
+            fetchProducts();
+        } catch (error: any) {
+            toast.error("Erreur lors du déplacement groupé");
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         if (profile) {
@@ -131,7 +183,7 @@ export default function Sites() {
             setCurrentProduct(null);
             setFormData({
                 name: '',
-                category: '',
+                category: (viewMode === 'products' && activeCategory) ? activeCategory : '',
                 min_threshold: 0,
                 stock_abidjan: 0,
                 stock_bassam: 0,
@@ -246,6 +298,63 @@ export default function Sites() {
         }
     };
 
+    const toggleProductSelection = (id: string) => {
+        setSelectedProductIds(prev =>
+            prev.includes(id) ? prev.filter(pid => pid !== id) : [...prev, id]
+        );
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedProductIds.length === 0) return;
+
+        const reason = window.prompt(`Supprimer ${selectedProductIds.length} produits ?\n\nVEUILLEZ SAISIR LE MOTIF DE SUPPRESSION GROUPÉE :`);
+        if (reason === null) return;
+        if (!reason.trim()) {
+            toast.error("Un motif de suppression est obligatoire");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const { error: updateError } = await supabase
+                .from('products')
+                .update({
+                    category: 'ARCHIVED',
+                    stock_abidjan: 0,
+                    stock_bassam: 0
+                })
+                .in('id', selectedProductIds);
+
+            if (updateError) throw updateError;
+
+            if (profile?.id) {
+                await logAudit({
+                    action_type: 'DELETE',
+                    entity_type: 'PRODUCT',
+                    entity_id: selectedProductIds.join(', '),
+                    site: selectedSite,
+                    reason: reason.trim(),
+                    details: {
+                        count: selectedProductIds.length,
+                        ids: selectedProductIds,
+                        motive: reason.trim(),
+                        method: 'BULK_SOFT_DELETE'
+                    }
+                }, profile);
+            }
+
+            toast.success(`${selectedProductIds.length} produits supprimés (archivés)`);
+            setSelectedProductIds([]);
+            setIsSelectMode(false);
+            fetchProducts();
+        } catch (error: any) {
+            console.error('Bulk delete error:', error);
+            toast.error('Erreur lors de la suppression groupée');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!formData.category) {
@@ -254,6 +363,37 @@ export default function Sites() {
         }
         try {
             setLoading(true);
+
+            // 🔍 Vérification des doublons (Nom unique GLOBAL, peu importe la catégorie)
+            const cleanName = (formData.name || '').trim();
+            if (!cleanName) {
+                toast.error("Le nom du produit est obligatoire");
+                setLoading(false);
+                return;
+            }
+
+            const isNameChanged = !isEditing || (currentProduct && cleanName !== currentProduct.name);
+
+            if (isNameChanged) {
+                // On utilise .limit(1) au lieu de .maybeSingle() pour éviter l'erreur si plusieurs doublons existent déjà
+                const { data: existingProducts, error: checkError } = await supabase
+                    .from('products')
+                    .select('id, name, category')
+                    .ilike('name', cleanName)
+                    .neq('category', 'ARCHIVED')
+                    .limit(1);
+
+                if (checkError) throw checkError;
+
+                const firstDuplicate = existingProducts?.[0];
+
+                if (firstDuplicate && (!isEditing || firstDuplicate.id !== currentProduct?.id)) {
+                    toast.error(`${cleanName} existe déjà dans la catégorie ${firstDuplicate.category}`);
+                    setLoading(false);
+                    return;
+                }
+            }
+
             if (isEditing && currentProduct?.id) {
                 // 1. Update the current product row
                 const { error: updateError } = await supabase
@@ -306,8 +446,12 @@ export default function Sites() {
                         entity_type: 'PRODUCT',
                         entity_id: currentProduct.id,
                         site: selectedSite,
+                        reason: stockDiff !== 0
+                            ? `Mise à jour et ajustement stock (${stockDiff > 0 ? '+' : ''}${stockDiff})`
+                            : "Modification des informations produit",
                         details: {
                             name: formData.name,
+                            quantity_added: stockDiff,
                             changes: {
                                 stock_abidjan: formData.stock_abidjan || 0,
                                 stock_bassam: formData.stock_bassam || 0,
@@ -369,9 +513,13 @@ export default function Sites() {
                         entity_type: 'PRODUCT',
                         entity_id: newP.id,
                         site: targetSiteValue,
+                        reason: "Création du nouveau produit et initialisation du stock",
                         details: {
                             name: formData.name,
                             category: formData.category,
+                            quantity_added: targetSiteValue === 'both'
+                                ? ((formData.stock_abidjan || 0) + (formData.stock_bassam || 0))
+                                : (targetSiteValue === 'abidjan' ? (formData.stock_abidjan || 0) : (formData.stock_bassam || 0)),
                             stock_abidjan: formData.stock_abidjan || 0,
                             stock_bassam: formData.stock_bassam || 0
                         }
@@ -439,7 +587,7 @@ export default function Sites() {
                 setLoading(true);
 
                 let addedCount = 0;
-                let skippedCount = 0;
+                let updatedCount = 0;
                 let errorCount = 0;
 
                 // Consolidated Import Logic
@@ -464,6 +612,17 @@ export default function Sites() {
                         if (newCat) {
                             setDbCategories(prev => [...prev, newCat]);
                             categoryId = newCat.id;
+
+                            // Log Audit for new category
+                            if (profile) {
+                                await logAudit({
+                                    action_type: 'CREATE',
+                                    entity_type: 'CATEGORY',
+                                    entity_id: newCat.id,
+                                    reason: "Création automatique via Import TXT",
+                                    details: { name: newCat.name }
+                                }, profile);
+                            }
                         }
                     }
 
@@ -471,20 +630,68 @@ export default function Sites() {
                     // To avoid duplicates, we look for any product with same name that is not archived
                     const { data: existing } = await supabase
                         .from('products')
-                        .select('id, site, stock_abidjan, stock_bassam')
+                        .select('id, category')
                         .ilike('name', product.name)
                         .neq('category', 'ARCHIVED')
                         .limit(1);
 
                     if (existing && existing.length > 0) {
-                        // Product already exists somewhere. 
-                        // If we are importing for 'both' and it's currently only for one site, we could upgrade it.
-                        // But for simplicity of "Skip", we just skip.
-                        skippedCount++;
+                        const existingP = existing[0];
+
+                        // Déterminer les champs à mettre à jour
+                        const updateData: any = {};
+                        if (importTargetSite === 'abidjan' || importTargetSite === 'both') {
+                            updateData.stock_abidjan = product.stock;
+                        }
+                        if (importTargetSite === 'bassam' || importTargetSite === 'both') {
+                            updateData.stock_bassam = product.stock;
+                        }
+
+                        // Mettre à jour le produit
+                        const { error: upError } = await supabase
+                            .from('products')
+                            .update(updateData)
+                            .eq('id', existingP.id);
+
+                        if (upError) {
+                            errorCount++;
+                        } else {
+                            // Logger le mouvement de stock (Ajustement par import)
+                            const targetSitesLog = importTargetSite === 'both' ? ['abidjan', 'bassam'] : [importTargetSite];
+                            for (const siteL of targetSitesLog) {
+                                await supabase.from('stock_movements').insert([{
+                                    product_id: existingP.id,
+                                    type: 'UPDATE',
+                                    quantity: product.stock,
+                                    performed_by: profile?.id,
+                                    notes: `Mise à jour via Import TXT (Nouveau stock: ${product.stock})`,
+                                    site: siteL
+                                }]);
+                            }
+
+                            // Log Audit for Import Update
+                            if (profile) {
+                                await logAudit({
+                                    action_type: 'UPDATE',
+                                    entity_type: 'PRODUCT',
+                                    entity_id: existingP.id,
+                                    site: importTargetSite,
+                                    reason: `Mise à jour stock via Import TXT (${product.stock})`,
+                                    details: {
+                                        name: product.name,
+                                        category: product.category,
+                                        quantity_added: product.stock,
+                                        method: 'IMPORT_TXT'
+                                    }
+                                }, profile);
+                            }
+
+                            updatedCount++;
+                        }
                         continue;
                     }
 
-                    const { error } = await supabase
+                    const { data: newProd, error: insError } = await supabase
                         .from('products')
                         .insert([{
                             name: product.name,
@@ -496,27 +703,59 @@ export default function Sites() {
                             created_by: profile?.id,
                             unit: 'unit',
                             site: importTargetSite
-                        }]);
+                        }])
+                        .select()
+                        .single();
 
-                    if (error) {
+                    if (insError) {
                         errorCount++;
-                    } else {
+                    } else if (newProd) {
+                        // Log initial stock movement(s)
+                        const sitesToLog = importTargetSite === 'both' ? ['abidjan', 'bassam'] : [importTargetSite];
+                        for (const s of sitesToLog) {
+                            if (product.stock > 0) {
+                                await supabase.from('stock_movements').insert([{
+                                    product_id: newProd.id,
+                                    type: 'IN',
+                                    quantity: product.stock,
+                                    performed_by: profile?.id,
+                                    site: s,
+                                    notes: 'Stock initial (Import TXT)'
+                                }]);
+                            }
+                        }
+
+                        // Log Creation Audit
+                        if (profile) {
+                            await logAudit({
+                                action_type: 'CREATE',
+                                entity_type: 'PRODUCT',
+                                entity_id: newProd.id,
+                                site: importTargetSite,
+                                reason: "Création du produit via Import TXT",
+                                details: {
+                                    name: product.name,
+                                    category: product.category,
+                                    stock: product.stock,
+                                    quantity_added: product.stock,
+                                    method: 'IMPORT_TXT'
+                                }
+                            }, profile);
+                        }
+
                         addedCount++;
                     }
                 }
 
-                if (addedCount > 0) {
-                    toast.success(`${addedCount} produit(s) importé(s) avec succès !`);
+                if (addedCount > 0 || updatedCount > 0) {
+                    toast.success(`${addedCount} ajout(s) et ${updatedCount} mise(s) à jour.`);
                     fetchProducts();
                     setShowImportModal(false);
                 }
-                if (skippedCount > 0) {
-                    toast(`${skippedCount} produit(s) existant(s) ignoré(s).`, { icon: 'ℹ️' });
-                }
                 if (errorCount > 0) {
-                    toast.error(`${errorCount} opération(s) ont échoué lors de l'import.`);
+                    toast.error(`${errorCount} erreur(s) lors de l'import.`);
                 }
-                if (addedCount === 0 && skippedCount > 0 && errorCount === 0) {
+                if (addedCount === 0 && updatedCount > 0 && errorCount === 0) {
                     setShowImportModal(false);
                 }
 
@@ -578,7 +817,45 @@ export default function Sites() {
                                 ))}
                             </div>
                         )}
-                        {(profile?.role === 'admin' || profile?.permissions.edit_inventory) && (
+                        <button
+                            onClick={() => {
+                                setIsSelectMode(!isSelectMode);
+                                if (!isSelectMode) setSelectedProductIds([]);
+                            }}
+                            className={clsx(
+                                "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-sm",
+                                isSelectMode
+                                    ? "bg-gray-900 text-white"
+                                    : "bg-white text-gray-500 border border-gray-100 hover:border-brand-200"
+                            )}
+                        >
+                            {isSelectMode ? <X className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
+                            <span>{isSelectMode ? `Terminer (${selectedProductIds.length})` : 'SÉLECTIONNER'}</span>
+                        </button>
+
+                        {isSelectMode && viewMode === 'products' && (
+                            <button
+                                onClick={() => {
+                                    const visibleIds = filteredProducts
+                                        .filter(p => (searchTerm || p.category === activeCategory))
+                                        .map(p => p.id);
+
+                                    const allVisibleSelected = visibleIds.every(id => selectedProductIds.includes(id));
+
+                                    if (allVisibleSelected) {
+                                        setSelectedProductIds(selectedProductIds.filter(id => !visibleIds.includes(id)));
+                                    } else {
+                                        setSelectedProductIds(Array.from(new Set([...selectedProductIds, ...visibleIds])));
+                                    }
+                                }}
+                                className="flex items-center gap-2 px-4 py-2 bg-brand-50 text-brand-600 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-brand-100 transition-all active:scale-95 border border-brand-100"
+                            >
+                                <Check className="w-4 h-4" />
+                                <span>Tout Sélectionner</span>
+                            </button>
+                        )}
+
+                        {!isSelectMode && (profile?.role === 'admin' || profile?.permissions.edit_inventory) && (
                             <button
                                 onClick={() => handleOpenModal()}
                                 className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-brand-700 transition-all active:scale-95 shadow-lg shadow-brand-100"
@@ -587,7 +864,7 @@ export default function Sites() {
                                 <span>Nouveau</span>
                             </button>
                         )}
-                        {(profile?.role === 'admin' || profile?.permissions.edit_inventory) && (
+                        {!isSelectMode && (profile?.role === 'admin' || profile?.permissions.edit_inventory) && (
                             <button
                                 onClick={() => setShowImportModal(true)}
                                 className="flex items-center gap-2 px-4 py-2 bg-white text-gray-700 border border-gray-200 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:bg-gray-50 transition-all active:scale-95 shadow-sm"
@@ -827,12 +1104,27 @@ export default function Sites() {
                                             return (
                                                 <div
                                                     key={product.id}
-                                                    onClick={() => handleOpenDetail(product)}
+                                                    onClick={() => isSelectMode ? toggleProductSelection(product.id) : handleOpenDetail(product)}
                                                     className={clsx(
-                                                        "group relative bg-white rounded-2xl border border-gray-100 hover:border-brand-200 hover:shadow-xl hover:shadow-brand-100/50 transition-all p-4 flex flex-col cursor-pointer overflow-hidden",
-                                                        isLow && "bg-red-50/30 border-red-100"
+                                                        "group relative bg-white rounded-2xl border transition-all p-4 flex flex-col cursor-pointer overflow-hidden backdrop-blur-sm",
+                                                        isLow && "bg-red-50/30 border-red-100",
+                                                        !isLow && "border-gray-100 hover:border-brand-200 hover:shadow-xl",
+                                                        selectedProductIds.includes(product.id) && "border-brand-500 ring-2 ring-brand-500/20 shadow-xl bg-brand-50/20"
                                                     )}
                                                 >
+                                                    {/* Selection Overlay */}
+                                                    {isSelectMode && (
+                                                        <div className="absolute top-2 right-2 z-10">
+                                                            <div className={clsx(
+                                                                "w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all",
+                                                                selectedProductIds.includes(product.id)
+                                                                    ? "bg-brand-600 border-brand-600 text-white"
+                                                                    : "bg-white border-gray-200"
+                                                            )}>
+                                                                {selectedProductIds.includes(product.id) && <Check className="w-3.5 h-3.5 stroke-[4px]" />}
+                                                            </div>
+                                                        </div>
+                                                    )}
 
                                                     {/* Header info */}
                                                     <div className="flex justify-between items-start mb-3">
@@ -1515,6 +1807,85 @@ export default function Sites() {
                             >
                                 Annuler
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Bulk Actions Floating Bar */}
+            {selectedProductIds.length > 0 && (
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-bottom-20 duration-500">
+                    <div className="bg-gray-900/95 backdrop-blur-xl rounded-[2.5rem] p-2 flex items-center gap-6 shadow-2xl border border-white/10 ring-8 ring-gray-900/10">
+                        <div className="px-6 border-r border-white/10">
+                            <p className="text-[10px] font-black text-brand-400 uppercase tracking-[0.25em] mb-1">Stock Sélectionné</p>
+                            <p className="text-sm font-black text-white flex items-center gap-2">
+                                <Package className="w-4 h-4 text-brand-500" />
+                                {selectedProductIds.length} {selectedProductIds.length > 1 ? 'articles' : 'article'}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 pr-2">
+                            <button
+                                onClick={() => setIsBulkCategoryModalOpen(true)}
+                                className="group flex items-center gap-3 px-8 py-4 bg-brand-500/10 hover:bg-brand-500 text-brand-500 hover:text-white rounded-[2rem] font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-xl hover:shadow-brand-500/40 border border-brand-500/20"
+                            >
+                                <LayoutGrid className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                                <span>Changer Catégorie</span>
+                            </button>
+                            <button
+                                onClick={handleBulkDelete}
+                                className="group flex items-center gap-3 px-8 py-4 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-[2rem] font-black text-[10px] uppercase tracking-widest transition-all active:scale-95 shadow-xl hover:shadow-red-500/40 border border-red-500/20"
+                            >
+                                <Trash2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
+                                <span>Suppression groupée</span>
+                            </button>
+                            <button
+                                onClick={() => { setSelectedProductIds([]); setIsSelectMode(false); }}
+                                className="p-4 text-gray-400 hover:text-white hover:bg-white/5 rounded-full transition-all"
+                                title="Fermer la sélection"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Bulk Category Update Modal */}
+            {isBulkCategoryModalOpen && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+                    <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-300 border border-gray-100">
+                        <div className="p-8 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
+                            <div>
+                                <h2 className="text-xl font-black text-gray-900 uppercase tracking-tight">Déplacement Groupé</h2>
+                                <p className="text-[10px] text-brand-600 font-black uppercase tracking-widest mt-1">Vers une nouvelle catégorie</p>
+                            </div>
+                            <button
+                                onClick={() => setIsBulkCategoryModalOpen(false)}
+                                className="p-3 text-gray-400 hover:text-gray-900 bg-white rounded-2xl shadow-sm border border-gray-100 hover:border-gray-200 transition-all"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-8 space-y-6">
+                            <div className="bg-brand-50 rounded-2xl p-4 border border-brand-100 flex items-start gap-4">
+                                <Package className="w-6 h-6 text-brand-600 shrink-0 mt-1" />
+                                <p className="text-xs font-bold text-brand-900/80 leading-relaxed uppercase tracking-tight">
+                                    Vous allez déplacer <span className="text-brand-600 text-sm font-black">{selectedProductIds.length}</span> articles sélectionnés.
+                                </p>
+                            </div>
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] ml-1">Choisir la Catégorie cible</label>
+                                <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {dbCategories.map(cat => (
+                                        <button
+                                            key={cat.id}
+                                            onClick={() => handleBulkUpdateCategory(cat.name)}
+                                            className="px-4 py-3 bg-gray-50 hover:bg-brand-50 border border-transparent hover:border-brand-200 rounded-xl text-[10px] font-black text-gray-700 hover:text-brand-600 uppercase tracking-widest transition-all text-left truncate"
+                                        >
+                                            {cat.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

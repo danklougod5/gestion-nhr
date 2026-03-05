@@ -224,9 +224,12 @@ export default function Needs() {
 
             if (requestError) throw requestError;
 
+            const productNames: string[] = [];
             for (const item of items) {
                 const product = products.find(p => p.id === item.productId);
                 if (!product) continue;
+
+                productNames.push(product.name);
 
                 const stockField = selectedSite === 'abidjan' ? 'stock_abidjan' : 'stock_bassam';
                 const currentStock = (product as any)[stockField] || 0;
@@ -251,7 +254,11 @@ export default function Needs() {
                 entity_type: 'NEEDS_REQUEST',
                 entity_id: request.id,
                 site: selectedSite,
-                details: { items_count: items.length }
+                reason: `Génération d'un bon de sortie pour ${items.length} produit(s)`,
+                details: {
+                    items_count: items.length,
+                    products_list: productNames.join(', ')
+                }
             }, profile);
 
             toast.success('Bon de sortie validé !');

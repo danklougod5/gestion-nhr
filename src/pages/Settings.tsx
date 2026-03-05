@@ -109,15 +109,20 @@ export default function Settings() {
     const [editName, setEditName] = useState('');
     const [editRole, setEditRole] = useState<UserRole>('service');
     const [editSite, setEditSite] = useState<Site>('abidjan');
+    const [editPassword, setEditPassword] = useState('');
     const [editPermissions, setEditPermissions] = useState<UserPermissions>(DEFAULT_PERMISSIONS);
     const [activeAdminTab, setActiveAdminTab] = useState<'users' | 'audit' | 'categories'>('users');
     const [selectedSiteFilter, setSelectedSiteFilter] = useState<Site | 'all'>('all');
 
     // Categories management state
     const [categories, setCategories] = useState<{ id: string, name: string }[]>([]);
+    const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
     const [newCategoryName, setNewCategoryName] = useState('');
     const [categorySearch, setCategorySearch] = useState('');
     const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+    const [editingCategoryName, setEditingCategoryName] = useState('');
+    const [isUpdatingCategory, setIsUpdatingCategory] = useState(false);
 
     useEffect(() => {
         if (profile?.role === 'admin' || profile?.permissions?.manage_users || profile?.permissions?.manage_categories) {
@@ -139,25 +144,135 @@ export default function Settings() {
         }
     };
 
+    const handleBulkDeleteCategories = async () => {
+        if (selectedCategoryIds.length === 0) return;
+        const count = selectedCategoryIds.length;
+        const confirmStr = `Souhaitez-vous supprimer les ${count} catégories sélectionnées ?\n\nNote : Les produits existants conserveront leur catégorie actuelle mais celle-ci ne figurera plus dans le catalogue.`;
+        const reason = window.prompt(`${confirmStr}\n\nMOTIF DE SUPPRESSION :`);
+
+        if (reason === null) return;
+        if (!reason.trim()) {
+            toast.error("Le motif est obligatoire pour la suppression groupée");
+            return;
+        }
+
+        try {
+            const { error } = await supabase
+                .from('categories')
+                .delete()
+                .in('id', selectedCategoryIds);
+
+            if (error) throw error;
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'DELETE',
+                    entity_type: 'CATEGORY',
+                    entity_id: 'BULK_DELETE',
+                    reason: `Suppression groupée de ${count} catégories. Motif : ${reason}`,
+                    details: {
+                        count,
+                        deleted_ids: selectedCategoryIds,
+                        motive: reason
+                    }
+                }, profile);
+            }
+
+            toast.success(`${count} catégories supprimées`);
+            setSelectedCategoryIds([]);
+            fetchCategories();
+        } catch (error: any) {
+            toast.error("Erreur lors de la suppression groupée");
+            console.error(error);
+        }
+    };
+
     const handleAddCategory = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newCategoryName.trim()) return;
+        const input = newCategoryName.trim();
+        if (!input) return;
+
+        // Split by comma or semicolon to allow multiple additions
+        const names = input.split(/[,;]+/).map(n => n.trim()).filter(n => n.length > 0);
+        if (names.length === 0) return;
 
         setIsAddingCategory(true);
         try {
             const { error } = await supabase
                 .from('categories')
-                .insert([{ name: newCategoryName.trim() }]);
+                .insert(names.map(name => ({ name })));
 
             if (error) throw error;
 
-            toast.success('Catégorie ajoutée !');
+            if (profile) {
+                await logAudit({
+                    action_type: 'CREATE',
+                    entity_type: 'CATEGORY',
+                    entity_id: names.join(', '),
+                    reason: names.length > 1 ? `Création groupée de ${names.length} catégories` : "Création d'une nouvelle catégorie",
+                    details: { names }
+                }, profile);
+            }
+
+            toast.success(names.length > 1 ? `${names.length} catégories ajoutées !` : 'Catégorie ajoutée !');
             setNewCategoryName('');
+            fetchCategories();
+        } catch (error: any) {
+            toast.error("Erreur : " + (error.message || "Doublon détecté"));
+        } finally {
+            setIsAddingCategory(false);
+        }
+    };
+
+    const handleUpdateCategory = async (id: string, oldName: string) => {
+        if (!editingCategoryName.trim() || editingCategoryName.trim() === oldName) {
+            setEditingCategoryId(null);
+            return;
+        }
+
+        setIsUpdatingCategory(true);
+        try {
+            // 1. Update category name
+            const { error: catError } = await supabase
+                .from('categories')
+                .update({ name: editingCategoryName.trim() })
+                .eq('id', id);
+
+            if (catError) throw catError;
+
+            // 2. Update all products using this category
+            // This is necessary because category is stored as a string in products
+            const { error: prodError } = await supabase
+                .from('products')
+                .update({ category: editingCategoryName.trim() })
+                .eq('category', oldName);
+
+            if (prodError) {
+                console.error('Error updating products category:', prodError);
+                toast.error("Catégorie renommée, mais certains produits n'ont pas pu être mis à jour.");
+            }
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'UPDATE',
+                    entity_type: 'CATEGORY',
+                    entity_id: id,
+                    reason: `Renommage de catégorie: ${oldName} ➔ ${editingCategoryName.trim()}`,
+                    details: {
+                        old_name: oldName,
+                        new_name: editingCategoryName.trim(),
+                        products_updated: !prodError
+                    }
+                }, profile);
+            }
+
+            toast.success('Catégorie mise à jour !');
+            setEditingCategoryId(null);
             fetchCategories();
         } catch (error: any) {
             toast.error("Erreur : " + error.message);
         } finally {
-            setIsAddingCategory(false);
+            setIsUpdatingCategory(false);
         }
     };
 
@@ -238,6 +353,7 @@ export default function Settings() {
         setEditRole(user.role);
         setEditSite(user.site);
         setEditPermissions(user.permissions || ROLE_PERMISSIONS[user.role]);
+        setEditPassword('');
         setShowEditModal(true);
     };
 
@@ -252,6 +368,7 @@ export default function Settings() {
 
         setLoading(true);
         try {
+            // Mise à jour des informations du profil
             const { error } = await supabase
                 .from('profiles')
                 .update({
@@ -264,9 +381,50 @@ export default function Settings() {
 
             if (error) throw error;
 
-            toast.success('Utilisateur mis à jour avec succès !');
+            // Si un nouveau mot de passe a été saisi par l'admin
+            if (editPassword.trim()) {
+                if (editPassword.length < 6) {
+                    toast.error("Le nouveau mot de passe doit contenir au moins 6 caractères");
+                    setLoading(false);
+                    return;
+                }
+
+                // Appel d'une fonction RPC Supabase (nécessite d'être créée côté DB)
+                const { error: rpcError } = await supabase.rpc('admin_update_user_password', {
+                    user_id: editingUser.id,
+                    new_password: editPassword
+                });
+
+                if (rpcError) {
+                    console.log("RPC Error:", rpcError);
+                    toast.error("Profil mis à jour, mais impossible de modifier le mot de passe. L'Admin doit configurer l'accès RPC.");
+                } else {
+                    toast.success('Profil et mot de passe mis à jour !');
+                }
+            } else {
+                toast.success('Utilisateur mis à jour avec succès !');
+            }
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'UPDATE',
+                    entity_type: 'USER',
+                    entity_id: editingUser.id,
+                    site: editSite,
+                    reason: "Modification du profil utilisateur",
+                    details: {
+                        username: editingUser.username,
+                        full_name: editName,
+                        role: editRole,
+                        site: editSite,
+                        password_changed: !!editPassword.trim()
+                    }
+                }, profile);
+            }
+
             setShowEditModal(false);
             setEditingUser(null);
+            setEditPassword('');
             fetchUsers();
         } catch (error: any) {
             console.error('Error updating user:', error);
@@ -275,7 +433,6 @@ export default function Settings() {
             setLoading(false);
         }
     };
-
     const handleDeleteUser = async (user: UserType) => {
         const reason = window.prompt(`Êtes-vous sûr de vouloir supprimer l'utilisateur ${user.full_name || user.username} ?\n\nVEUILLEZ SAISIR LE MOTIF :`);
         if (reason === null) return;
@@ -369,6 +526,22 @@ export default function Settings() {
             } else if (authError?.message === 'User already registered') {
                 toast.error("Cet utilisateur existe déjà dans le système d'authentification.");
                 return;
+            }
+
+            if (profile) {
+                await logAudit({
+                    action_type: 'CREATE',
+                    entity_type: 'USER',
+                    entity_id: userId,
+                    site: newSite,
+                    reason: "Création d'un nouvel utilisateur",
+                    details: {
+                        username: newUsername.toLowerCase().trim(),
+                        full_name: newName,
+                        role: newRole,
+                        site: newSite
+                    }
+                }, profile);
             }
 
             toast.success('Utilisateur configuré avec succès !');
@@ -661,7 +834,7 @@ export default function Settings() {
                                                         type="text"
                                                         value={newCategoryName}
                                                         onChange={(e) => setNewCategoryName(e.target.value)}
-                                                        placeholder="Ex: Produits d'entretien"
+                                                        placeholder="Ex: Viande, Boisson, Légume"
                                                         className="w-full px-4 py-3 bg-gray-50 border border-transparent rounded-xl focus:bg-white focus:border-brand-200 outline-none transition-all font-bold text-gray-900 text-xs"
                                                         required
                                                     />
@@ -681,9 +854,20 @@ export default function Settings() {
                                     <div className="lg:col-span-2">
                                         <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm min-h-[400px]">
                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-                                                <h3 className="text-sm font-black text-gray-900 tracking-tight uppercase">
-                                                    Catalogue des catégories
-                                                </h3>
+                                                <div className="flex items-center gap-4">
+                                                    <h3 className="text-sm font-black text-gray-900 tracking-tight uppercase">
+                                                        Catalogue des catégories
+                                                    </h3>
+                                                    {selectedCategoryIds.length > 0 && (
+                                                        <button
+                                                            onClick={handleBulkDeleteCategories}
+                                                            className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-red-100 transition-all animate-in zoom-in"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                            Supprimer ({selectedCategoryIds.length})
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 <div className="flex items-center gap-3">
                                                     <div className="relative group flex-1 sm:flex-none">
                                                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-300 group-focus-within:text-brand-600 transition-colors" />
@@ -702,17 +886,88 @@ export default function Settings() {
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 {categories
                                                     .filter(cat => cat.name.toLowerCase().includes(categorySearch.toLowerCase()))
-                                                    .map((cat) => (
-                                                        <div key={cat.id} className="group flex items-center justify-between p-4 bg-gray-50/50 hover:bg-white border border-transparent hover:border-brand-100 rounded-xl transition-all shadow-sm">
-                                                            <span className="font-bold text-gray-700 text-xs uppercase tracking-tight">{cat.name}</span>
-                                                            <button
-                                                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                                                                className="p-1.5 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-50 rounded-lg"
+                                                    .map((cat) => {
+                                                        const isSelected = selectedCategoryIds.includes(cat.id);
+                                                        return (
+                                                            <div
+                                                                key={cat.id}
+                                                                className={clsx(
+                                                                    "group flex items-center justify-between p-4 rounded-xl transition-all shadow-sm border cursor-pointer select-none",
+                                                                    isSelected
+                                                                        ? "bg-brand-50 border-brand-200"
+                                                                        : "bg-gray-50/50 hover:bg-white border-transparent hover:border-brand-100"
+                                                                )}
+                                                                onClick={() => {
+                                                                    if (isSelected) {
+                                                                        setSelectedCategoryIds(selectedCategoryIds.filter(id => id !== cat.id));
+                                                                    } else {
+                                                                        setSelectedCategoryIds([...selectedCategoryIds, cat.id]);
+                                                                    }
+                                                                }}
                                                             >
-                                                                <Trash2 className="w-3.5 h-3.5" />
-                                                            </button>
-                                                        </div>
-                                                    ))}
+                                                                {editingCategoryId === cat.id ? (
+                                                                    <div className="flex items-center gap-2 flex-1 mr-2" onClick={e => e.stopPropagation()}>
+                                                                        <input
+                                                                            type="text"
+                                                                            value={editingCategoryName}
+                                                                            onChange={(e) => setEditingCategoryName(e.target.value)}
+                                                                            className="flex-1 px-3 py-1.5 bg-white border border-brand-200 rounded-lg outline-none font-bold text-xs uppercase"
+                                                                            autoFocus
+                                                                            onKeyDown={(e) => {
+                                                                                if (e.key === 'Enter') handleUpdateCategory(cat.id, cat.name);
+                                                                                if (e.key === 'Escape') setEditingCategoryId(null);
+                                                                            }}
+                                                                        />
+                                                                        <button
+                                                                            onClick={() => handleUpdateCategory(cat.id, cat.name)}
+                                                                            disabled={isUpdatingCategory}
+                                                                            className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                                                        >
+                                                                            <Check className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => setEditingCategoryId(null)}
+                                                                            className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg transition-all"
+                                                                        >
+                                                                            <X className="w-3.5 h-3.5" />
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className={clsx(
+                                                                                "w-4 h-4 rounded border flex items-center justify-center transition-all",
+                                                                                isSelected ? "bg-brand-600 border-brand-600" : "bg-white border-gray-200"
+                                                                            )}>
+                                                                                {isSelected && <Check className="w-3 h-3 text-white stroke-[4px]" />}
+                                                                            </div>
+                                                                            <span className={clsx(
+                                                                                "font-bold text-xs uppercase tracking-tight",
+                                                                                isSelected ? "text-brand-900" : "text-gray-700"
+                                                                            )}>{cat.name}</span>
+                                                                        </div>
+                                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all" onClick={e => e.stopPropagation()}>
+                                                                            <button
+                                                                                onClick={() => {
+                                                                                    setEditingCategoryId(cat.id);
+                                                                                    setEditingCategoryName(cat.name);
+                                                                                }}
+                                                                                className="p-1.5 text-gray-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
+                                                                            >
+                                                                                <Edit2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                            <button
+                                                                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
+                                                                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                            >
+                                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                                            </button>
+                                                                        </div>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 {categories.length === 0 && (
                                                     <div className="col-span-full py-20 text-center italic text-gray-300 text-xs font-bold uppercase tracking-widest">
                                                         Aucune catégorie
@@ -787,6 +1042,19 @@ export default function Settings() {
                                                     <option value="abidjan">Abidjan</option>
                                                     <option value="bassam">Bassam</option>
                                                 </select>
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1.5 sm:space-y-2">
+                                            <label className="text-[10px] sm:text-xs font-black text-gray-400 uppercase tracking-widest ml-1">Nouv. Mot de Passe (optionnel)</label>
+                                            <div className="relative">
+                                                <Key className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400 pointer-events-none" />
+                                                <input
+                                                    type="text"
+                                                    value={editPassword}
+                                                    onChange={(e) => setEditPassword(e.target.value)}
+                                                    className="w-full pl-11 sm:pl-12 pr-4 py-3 sm:py-3.5 bg-gray-50 border border-gray-100 rounded-xl sm:rounded-2xl focus:bg-white focus:border-brand-200 outline-none transition-all font-bold text-gray-900 text-sm sm:text-base"
+                                                    placeholder="Laisser vide si inchangé"
+                                                />
                                             </div>
                                         </div>
                                     </div>
